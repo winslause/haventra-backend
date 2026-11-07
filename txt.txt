@@ -1,0 +1,31 @@
+## B. PROPERTY DISCOVERY TEMPLATES (5 files)
+
+| # | File | Contains | Absorbs |
+|---|------|----------|---------|
+| 10 | `properties.html` | Search bar, filter sidebar (location, type, price, beds, amenities), sort, grid/list toggle, pagination | All Properties, Find Properties, Property Categories index |
+| 11 | `properties-category.html` | Same as above, pre-filtered by category via URL/data attribute | Houses/Apartments/Bedsitters/Single Rooms/Shared/Furnished/Unfurnished/Sale/Land/Commercial/Office/Shops/Warehouses/Student — **all 17 category pages** |
+| 12 | `stays.html` | Stay-specific filters (check-in/out, guests, nightly price), map+list, cards with booking CTA | All 10 Airbnb/short-stay category pages (Airbnb, BnB, Short-Stay, Serviced, Holiday Homes, Vacation Rentals, Furnished Short-Stays, Luxury, Budget, Family) |
+| 13 | `location.html` | SEO location landing page: intro copy, breadcrumbs, listings, nearby locations, map | All location-based SEO pages (`/locations/`, `/houses-for-rent/nairobi/`, etc.) — one template, data-driven |
+| 14 | `property-detail.html` | Gallery/video, description, specs, map, amenities, availability, provider card, enquiry/viewing/booking buttons, reviews, similar properties, report link | Individual property pages |
+
+.    for this section,  i will only use 3 files:   airbnb.html,  rentals.html,  forsale.html.  each will have those best features.  lets start with with airbnb.html.       this page will have only airbnbs.  the page will have the modals like the ones used here.  place the best fetures with amazing designs to make it the best.  it should be ighly searchible and quickly available on search results.   create airnb.html first.  make it perfect:  ## B. PROPERTY DISCOVERY TEMPLATES (5 files)
+
+| # | File | Contains | Absorbs |
+|---|------|----------|---------|
+| 10 | `properties.html` | Search bar, filter sidebar (location, type, price, beds, amenities), sort, grid/list toggle, pagination | All Properties, Find Properties, Property Categories index |
+| 11 | `properties-category.html` | Same as above, pre-filtered by category via URL/data attribute | Houses/Apartments/Bedsitters/Single Rooms/Shared/Furnished/Unfurnished/Sale/Land/Commercial/Office/Shops/Warehouses/Student — **all 17 category pages** |
+| 12 | `stays.html` | Stay-specific filters (check-in/out, guests, nightly price), map+list, cards with booking CTA | All 10 Airbnb/short-stay category pages (Airbnb, BnB, Short-Stay, Serviced, Holiday Homes, Vacation Rentals, Furnished Short-Stays, Luxury, Budget, Family) |
+| 13 | `location.html` | SEO location landing page: intro copy, breadcrumbs, listings, nearby locations, map | All location-based SEO pages (`/locations/`, `/houses-for-rent/nairobi/`, etc.) — one template, data-driven |
+| 14 | `property-detail.html` | Gallery/video, description, specs, map, amenities, availability, provider card, enquiry/viewing/booking buttons, reviews, similar properties, report link | Individual property pages |
+
+.    for this section,  i will only use 3 files:   airbnb.html,  rentals.html,  forsale.html.  each will have those best features.  lets start with with airbnb.html.       this page will have only airbnbs.  the page will have the modals like the ones used here.  place the best fetures with amazing designs to make it the best.  it should be ighly searchible and quickly available on search results.   create airnb.html first.  make it perfect:  ## B. PROPERTY DISCOVERY TEMPLATES (5 files)
+
+| # | File | Contains | Absorbs |
+|---|------|----------|---------|
+| 10 | `properties.html` | Search bar, filter sidebar (location, type, price, beds, amenities), sort, grid/list toggle, pagination | All Properties, Find Properties, Property Categories index |
+| 11 | `properties-category.html` | Same as above, pre-filtered by category via URL/data attribute | Houses/Apartments/Bedsitters/Single Rooms/Shared/Furnished/Unfurnished/Sale/Land/Commercial/Office/Shops/Warehouses/Student — **all 17 category pages** |
+| 12 | `stays.html` | Stay-specific filters (check-in/out, guests, nightly price), map+list, cards with booking CTA | All 10 Airbnb/short-stay category pages (Airbnb, BnB, Short-Stay, Serviced, Holiday Homes, Vacation Rentals, Furnished Short-Stays, Luxury, Budget, Family) |
+| 13 | `location.html` | SEO location landing page: intro copy, breadcrumbs, listings, nearby locations, map | All location-based SEO pages (`/locations/`, `/houses-for-rent/nairobi/`, etc.) — one template, data-driven |
+| 14 | `property-detail.html` | Gallery/video, description, specs, map, amenities, availability, provider card, enquiry/viewing/booking buttons, reviews, similar properties, report link | Individual property pages |
+
+.    for this section,  i will only use 3 files:   airbnb.html,  rentals.html,  forsale.html.  each will have those best features.  lets start with with airbnb.html.       this page will have only airbnbs.  the page will have the modals like the ones used here.  place the best fetures with amazing designs to make it the best.  it should be ighly searchible and quickly available on search results.   create airnb.html first.  make it perfect:

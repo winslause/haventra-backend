@@ -1,0 +1,17 @@
+DirectoryIndex index.php index.html index.htm
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /haventra/
+
+    # Redirect home.html to index.php
+    RewriteRule ^home\.html$ index.php?page=home [R=301,L]
+
+# Sitemap
+RewriteRule ^sitemap\.xml$ sitemap.php [L]
+
+# Pretty URLs: /page-name -> index.php?page=page-name
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^([a-zA-Z0-9_\-]+)/?$ index.php?page=$1 [L,QSA]
+</IfModule>
