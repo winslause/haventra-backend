@@ -3,10 +3,8 @@
 $page_title = 'Search Results | HAVENTRA';
 $page_description = 'Search properties, real estate agencies, property management, and cleaning companies on HAVENTRA.';
 $page_canonical = 'https://haventra.com/search/';
-?>
-<?php
-$query = $_GET['q'] ?? '';
-$query = trim($query);
+$query = trim((string)($_GET['q'] ?? ''));
+$typeFilter = trim((string)($_GET['t'] ?? ''));
 ?>
 
 <!-- ===== SEARCH HERO SECTION ===== -->
@@ -85,11 +83,11 @@ $query = trim($query);
                 <i class="fas fa-tag text-3xl text-[#F59E0B] mb-3 group-hover:text-[#b45309] transition-colors"></i>
                 <h3 class="font-['Cormorant_Garamond'] text-xl text-[#3f352e]">For Sale</h3>
             </a>
-            <a href="/moving_services/" class="group block p-6 bg-[#f5efe8] rounded-2xl border border-[#4a90a0]/10 hover:border-[#4a90a0]/30 hover:shadow-lg transition-all text-center">
+                <a href="/haventra/airbnb/" class="group block p-6 bg-[#f5efe8] rounded-2xl border border-[#4a90a0]/10 hover:border-[#4a90a0]/30 hover:shadow-lg transition-all text-center">
                 <i class="fas fa-plane text-3xl text-[#005BB5] mb-3 group-hover:text-[#003d7a] transition-colors"></i>
                 <h3 class="font-['Cormorant_Garamond'] text-xl text-[#3f352e]">Short Stay</h3>
             </a>
-            <a href="/agencies/" class="group block p-6 bg-[#f5efe8] rounded-2xl border border-[#4a90a0]/10 hover:border-[#4a90a0]/30 hover:shadow-lg transition-all text-center">
+            <a href="/haventra/agencies/" class="group block p-6 bg-[#f5efe8] rounded-2xl border border-[#4a90a0]/10 hover:border-[#4a90a0]/30 hover:shadow-lg transition-all text-center">
                 <i class="fas fa-building text-3xl text-[#059669] mb-3 group-hover:text-[#047857] transition-colors"></i>
                 <h3 class="font-['Cormorant_Garamond'] text-xl text-[#3f352e]">Agencies</h3>
             </a>
@@ -115,8 +113,8 @@ async function fetchSearchResults(q, typeFilter = '') {
         <div class="flex items-center justify-between mb-4">
             <span id="resultCount" class="text-[#1e4d40] font-semibold">Searching...</span>
             <div class="flex gap-2">
-                <a href="?q=${encodeURIComponent(q)}&t=property" class="px-3 py-1 bg-white text-[#4a90a0] text-xs rounded-lg border border-[#4a90a0]/20 hover:bg-[#4a90a0]/5">Properties</a>
-                <a href="?q=${encodeURIComponent(q)}&t=agency" class="px-3 py-1 bg-white text-[#4a90a0] text-xs rounded-lg border border-[#4a90a0]/20 hover:bg-[#4a90a0]/5">Agencies</a>
+                <a href="/haventra/search/?q=${encodeURIComponent(q)}&t=property" class="px-3 py-1 bg-white text-[#4a90a0] text-xs rounded-lg border border-[#4a90a0]/20 hover:bg-[#4a90a0]/5">Properties</a>
+                <a href="/haventra/search/?q=${encodeURIComponent(q)}&t=agency" class="px-3 py-1 bg-white text-[#4a90a0] text-xs rounded-lg border border-[#4a90a0]/20 hover:bg-[#4a90a0]/5">Agencies</a>
             </div>
         </div>
     `;
@@ -124,9 +122,9 @@ async function fetchSearchResults(q, typeFilter = '') {
     emptyState.classList.add('hidden');
 
     try {
-        const res = await fetch(`/api/search.php?q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/haventra/api/search.php?q=${encodeURIComponent(q)}`, { headers: { 'Accept': 'application/json' } });
         const data = await res.json();
-        const results = data.results.filter(r => typeFilter ? r.type === typeFilter : true);
+        const results = (data.results || []).filter(r => typeFilter ? r.type === typeFilter : true);
 
         document.getElementById('resultCount').textContent = results.length + ' result' + (results.length !== 1 ? 's' : '');
 
@@ -140,22 +138,23 @@ async function fetchSearchResults(q, typeFilter = '') {
                 return `
                     <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
                         <div class="relative h-48 overflow-hidden">
-                            <img src="${item.image}" alt="${item.title}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
-                            <div class="absolute top-3 left-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold text-[#3f352e]">${item.badge}</div>
+                            <img src="${item.image || ''}" alt="${item.title || ''}" loading="lazy" decoding="async" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
+                            <div class="absolute top-3 left-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold text-[#3f352e]">${item.badge || ''}</div>
                         </div>
                         <div class="p-5">
-                            <h3 class="font-['Cormorant_Garamond'] text-xl text-[#3f352e] mb-1">${item.title}</h3>
-                            <p class="text-[#1e4d40] text-xs mb-3"><i class="fas fa-map-marker-alt text-[#4a90a0]"></i> ${item.location}</p>
+                            <h3 class="font-['Cormorant_Garamond'] text-xl text-[#3f352e] mb-1">${item.title || ''}</h3>
+                            <p class="text-[#1e4d40] text-xs mb-3"><i class="fas fa-map-marker-alt text-[#4a90a0]"></i> ${item.location || ''}</p>
                             <div class="flex justify-between items-center mb-3">
-                                <span class="text-[#4a90a0] font-bold text-lg">${item.price}</span>
-                                <span class="text-xs text-gray-500">${item.category}</span>
+                                <span class="text-[#4a90a0] font-bold text-lg">${item.price || ''}</span>
+                                <span class="text-xs text-gray-500">${item.category || ''}</span>
                             </div>
-                            <a href="/house/?id=${item.id.replace('prop-', '')}" class="w-full py-2.5 bg-[#4a90a0] text-white text-center rounded-xl text-sm font-medium hover:bg-[#2d5a4a]">View Property</a>
+                            <a href="${item.url || '#'}" class="block w-full py-2.5 bg-[#4a90a0] text-white text-center rounded-xl text-sm font-medium hover:bg-[#2d5a4a]">View</a>
                         </div>
                     </div>
                 `;
             } else {
-                const stars = '<i class="fas fa-star text-[#F59E0B]"></i>'.repeat(item.rating || 5) + '<i class="far fa-star text-[#F59E0B]"></i>'.repeat(5 - (item.rating || 5));
+                const r = Math.max(0, Math.min(5, Math.round(Number(item.rating || 0))));
+                const stars = '<i class="fas fa-star text-[#F59E0B]"></i>'.repeat(r) + '<i class="far fa-star text-[#F59E0B]"></i>'.repeat(5-r);
                 return `
                     <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
                         <div class="p-5">
@@ -164,21 +163,16 @@ async function fetchSearchResults(q, typeFilter = '') {
                                     <i class="fas ${item.icon || 'fa-building'} text-[#00215E]"></i>
                                 </div>
                                 <div class="flex-1">
-                                    <h3 class="font-['Cormorant_Garamond'] text-xl text-[#3f352e] mb-1">${item.title}</h3>
-                                    <p class="text-xs text-[#4a90a0] font-semibold uppercase">${item.category}</p>
-                                    <div class="flex items-center gap-1 mt-1">
-                                        ${stars}
-                                        <span class="text-xs text-gray-500 ml-1">${item.rating || 5}.0</span>
-                                    </div>
+                                    <h3 class="font-['Cormorant_Garamond'] text-xl text-[#3f352e] mb-1">${item.title || ''}</h3>
+                                    <p class="text-xs text-[#4a90a0] font-semibold uppercase">${item.category || ''}</p>
+                                    <div class="flex items-center gap-1 mt-1">${stars}<span class="text-xs text-gray-500 ml-1">${Number(item.rating||0).toFixed(1)}</span></div>
                                 </div>
                             </div>
-                            <p class="text-[#1e4d40] text-xs mb-3"><i class="fas fa-map-marker-alt text-[#4a90a0]"></i> ${item.location}</p>
-                            <p class="text-[#6b7280] text-[11px] mb-4 line-clamp-2">${item.description}</p>
+                            <p class="text-[#1e4d40] text-xs mb-3"><i class="fas fa-map-marker-alt text-[#4a90a0]"></i> ${item.location || ''}</p>
+                            <p class="text-[#6b7280] text-[11px] mb-4 line-clamp-2">${item.description || ''}</p>
                             <div class="flex gap-2">
-                                <a href="/agencies/" class="flex-1 py-2.5 bg-[#4a90a0] text-white text-center rounded-xl text-sm font-medium hover:bg-[#2d5a4a]">Contact</a>
-                                <button class="w-10 h-10 bg-gray-100 text-[#3f352e] rounded-xl flex items-center justify-center hover:bg-[#4a90a0] hover:text-white transition-colors" onclick="window.open('https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}', '_blank')">
-                                    <i class="fas fa-route text-xs"></i>
-                                </button>
+                                <a href="${item.url || '/haventra/agencies/'}" class="flex-1 py-2.5 bg-[#4a90a0] text-white text-center rounded-xl text-sm font-medium hover:bg-[#2d5a4a]">View Agency</a>
+                                ${item.phone ? `<a href="tel:${String(item.phone).replace(/\s+/g,'')}" class="w-10 h-10 bg-gray-100 text-[#3f352e] rounded-xl flex items-center justify-center hover:bg-[#4a90a0] hover:text-white transition-colors" aria-label="Call"><i class="fas fa-phone text-xs"></i></a>` : ''}
                             </div>
                         </div>
                     </div>
@@ -193,8 +187,8 @@ async function fetchSearchResults(q, typeFilter = '') {
 
 // Initialize
 const urlParams = new URLSearchParams(window.location.search);
-const q = urlParams.get('q') || '';
-const typeFilter = urlParams.get('t') || '';
+const q = urlParams.get('q') || <?php echo json_encode($query, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;
+const typeFilter = urlParams.get('t') || <?php echo json_encode($typeFilter, JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;
 
 document.getElementById('searchInput').value = q;
 if (q) {
@@ -205,8 +199,7 @@ if (q) {
 document.getElementById('searchForm').addEventListener('submit', function(e) {
     e.preventDefault();
     const input = document.getElementById('searchInput').value.trim();
-    const type = document.querySelector('.border-[#4a90a0]/20') ? '' : '';
-    window.location.href = '/search/?q=' + encodeURIComponent(input);
+    window.location.href = '/haventra/search/?q=' + encodeURIComponent(input);
 });
 </script>
 

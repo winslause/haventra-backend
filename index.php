@@ -108,12 +108,28 @@ $pageMap = [
     'contact-us' => 'contact-us.php',
     'events' => 'events.php',
     'agencies' => 'agencies.php',
+    'real-estate-agencies' => 'agencies.php',
+    'property-management-companies' => 'agencies.php',
+    'real-estate-agents' => 'agencies.php',
+    'cleaning-agencies' => 'agencies.php',
+    'cleaning-companies' => 'agencies.php',
+    'marketplace' => 'marketplace.php',
+    'realestate-marketplace' => 'marketplace.php',
+    'real-estate-marketplace' => 'marketplace.php',
     'search' => 'search.php',
     'messages' => 'messages.php',
 ];
 
 $viewFile = $pageMap[$page] ?? 'home.php';
 $viewPath = APP_PATH . $viewFile;
+
+// SEO defaults for high-visibility pages (must be set before nav.php renders <head>)
+if (in_array($page, ['marketplace','realestate-marketplace','real-estate-marketplace'], true)) {
+    $page_title = $page_title ?? 'Real Estate Marketplace | Houses for Rent, Sale, Short Stay & Agencies | HAVENTRA';
+    $page_description = $page_description ?? 'Browse HAVENTRA’s real estate marketplace: houses and apartments for rent, short-stay bookings, properties for sale, and verified real estate agencies, property management, and cleaning companies in one place.';
+    $page_canonical = $page_canonical ?? ((defined('APP_URL') ? rtrim(APP_URL,'/') : 'https://haventra.com') . '/marketplace/');
+}
+
 
 if (file_exists($viewPath)) {
     require APP_PATH . 'nav.php';

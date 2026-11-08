@@ -1,78 +1,61 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    
-    <!-- Primary Meta Tags -->
-    <title>Real Estate Agencies & Cleaning Companies in Kenya | HAVENTRA Agencies</title>
-    <meta name="title" content="Real Estate Agencies & Cleaning Companies in Kenya | HAVENTRA Agencies">
-    <meta name="description" content="Discover trusted real estate agencies, property managers, and professional cleaning companies across Kenya. Browse verified companies, compare services, and connect with the right partner on HAVENTRA.">
-    <meta name="keywords" content="real estate agencies Kenya, property management companies Nairobi, cleaning companies Kenya, real estate agents, property managers, professional cleaners, agency directory, HAVENTRA agencies">
-    <meta name="robots" content="index, follow">
-    <link rel="canonical" href="https://haventra.com/agencies/">
-    
-    <!-- Open Graph -->
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://haventra.com/agencies/">
-    <meta property="og:title" content="Real Estate Agencies & Cleaning Companies in Kenya | HAVENTRA">
-    <meta property="og:description" content="Discover trusted real estate agencies, property managers, and professional cleaning companies across Kenya.">
-    <meta property="og:image" content="https://haventra.com/logo.png">
-    
-    <!-- Twitter -->
-    <meta property="twitter:card" content="summary_large_image">
-    <meta property="twitter:url" content="https://haventra.com/agencies/">
-    <meta property="twitter:title" content="Real Estate Agencies & Cleaning Companies in Kenya | HAVENTRA">
-    <meta property="twitter:description" content="Discover trusted real estate agencies, property managers, and professional cleaning companies across Kenya.">
-    <meta property="twitter:image" content="https://haventra.com/logo.png">
-    
-    <!-- Schema.org -->
-    <script type="application/ld+json">
-    {
-        "@context": "https://schema.org",
-        "@type": "WebPage",
-        "name": "Real Estate Agencies & Cleaning Companies Directory",
-        "description": "Browse verified real estate agencies, property managers, and cleaning companies across Kenya.",
-        "url": "https://haventra.com/agencies/",
-        "publisher": {
-            "@type": "Organization",
-            "name": "HAVENTRA",
-            "logo": "https://haventra.com/logo.png"
-        }
+<?php
+// agencies.php - Agencies directory (DB-backed, fast/searchable)
+// $pdo is already available from index.php
+$page_title = 'Real Estate Agencies & Cleaning Companies in Kenya | HAVENTRA Agencies';
+$page_description = 'Discover trusted real estate agencies, property managers, and professional cleaning companies across Kenya. Browse verified companies, compare services, and connect with the right partner on HAVENTRA.';
+$page_canonical = 'https://haventra.com/agencies/';
+
+$q = trim((string)($_GET['q'] ?? $_GET['search'] ?? ''));
+$catParam = strtolower(trim((string)($_GET['category'] ?? $_GET['cat'] ?? '')));
+$catMap = ['agency'=>'agency','real-estate'=>'agency','real-estate-agencies'=>'agency','management'=>'management','property-management'=>'management','property-management-companies'=>'management','cleaning'=>'cleaning','cleaning-agencies'=>'cleaning','cleaning-companies'=>'cleaning'];
+$activeCat = $catMap[$catParam] ?? 'all';
+
+$agencies = [];
+$dbCities = [];
+try {
+    $rows = $pdo->query("SELECT id,name,category,category_label,location,city,rating,reviews,verified,years,years_label,clients,satisfaction,icon,logo,color,short_desc,tags,about,achievements,services,phone,email,whatsapp,website,lat,lng FROM agencies WHERE is_active=1 ORDER BY rating DESC, years DESC, name ASC")->fetchAll();
+    foreach ($rows as $r) {
+        $tags = json_decode($r['tags'] ?? '[]', true); if (!is_array($tags)) $tags = [];
+        $ach = json_decode($r['achievements'] ?? '[]', true); if (!is_array($ach)) $ach = [];
+        $svc = json_decode($r['services'] ?? '[]', true); if (!is_array($svc)) $svc = [];
+        $city = trim((string)$r['city']); if ($city !== '') $dbCities[$city] = ($dbCities[$city] ?? 0) + 1;
+        $agencies[] = [
+            'id' => 'agency-' . $r['id'],
+            'dbId' => (int)$r['id'],
+            'name' => (string)$r['name'],
+            'category' => (string)$r['category'],
+            'categoryLabel' => (string)$r['category_label'],
+            'location' => (string)$r['location'],
+            'city' => $city,
+            'rating' => (float)$r['rating'],
+            'reviews' => (int)$r['reviews'],
+            'verified' => (bool)$r['verified'],
+            'years' => (int)$r['years'],
+            'yearsLabel' => (string)$r['years_label'],
+            'clients' => (string)$r['clients'],
+            'satisfaction' => (string)$r['satisfaction'],
+            'icon' => (string)($r['icon'] ?: 'fa-building'),
+            'logo' => (string)($r['logo'] ?? ''),
+            'color' => (string)($r['color'] ?: 'purple'),
+            'shortDesc' => (string)$r['short_desc'],
+            'tags' => $tags,
+            'about' => (string)$r['about'],
+            'achievements' => $ach,
+            'services' => $svc,
+            'phone' => (string)$r['phone'],
+            'email' => (string)$r['email'],
+            'whatsapp' => (string)$r['whatsapp'],
+            'website' => (string)$r['website'],
+            'lat' => $r['lat'] !== null ? (float)$r['lat'] : null,
+            'lng' => $r['lng'] !== null ? (float)$r['lng'] : null,
+        ];
     }
-    </script>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Font Awesome -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Montserrat:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        navy: '#00215E',
-                        navyLight: '#001540',
-                        accentOrange: '#F59E0B',
-                        accentBlue: '#005BB5',
-                        agencyPurple: '#6D28D9',
-                        cleaningTeal: '#0D9488',
-                    },
-                    fontFamily: {
-                        sans: ['Plus Jakarta Sans', 'Montserrat', 'sans-serif'],
-                        serif: ['Cormorant Garamond', 'serif'],
-                    }
-                }
-            }
-        }
-    </script>
-
-    <style>
+} catch (Throwable $e) { $agencies = []; }
+ksort($dbCities);
+?>
+<!-- SEO -->
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+<style>
         * { -webkit-tap-highlight-color: transparent; }
         body { font-family: 'Plus Jakarta Sans', sans-serif; }
 
@@ -206,10 +189,6 @@
         .star-filled { color: #F59E0B; }
         .star-empty { color: #D1D5DB; }
     </style>
-</head>
-<body class="bg-[#FAFAFA] text-gray-800 antialiased">
-
-
 <!-- ================= HERO WITH SEARCH ================= -->
 <section class="agency-hero relative pt-8 pb-16 md:pt-12 md:pb-24 px-4">
     
@@ -223,6 +202,27 @@
         <p class="text-white/80 text-sm md:text-base max-w-2xl mx-auto">
             Browse real estate agencies, property managers, and professional cleaning companies across Kenya — all verified, all reviewed.
         </p>
+    </div>
+
+    <!-- Search bar -->
+    <div class="max-w-2xl mx-auto relative z-20 px-4">
+        <form id="agencySearchForm" onsubmit="handleAgencySearch(event)" class="search-shell p-1.5 md:p-2 flex items-center gap-1">
+            <div class="search-field flex-1 px-3 py-2 md:py-2.5 cursor-pointer" onclick="activateField(this)">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-search text-agencyPurple text-xs"></i>
+                    <input type="text" id="searchAgency" value="<?php echo htmlspecialchars($q, ENT_QUOTES); ?>" placeholder="Search agencies, services, or locations" class="search-input font-medium" autocomplete="off">
+                </div>
+            </div>
+            <button type="submit" class="bg-gradient-to-r from-agencyPurple to-violet-700 text-white rounded-full px-5 py-2.5 md:px-6 md:py-3 flex items-center justify-center gap-2 font-semibold text-sm shadow-lg hover:shadow-xl transition-all duration-300">
+                <i class="fas fa-search text-xs"></i><span class="hidden sm:inline">Search</span>
+            </button>
+        </form>
+        <div class="flex flex-wrap items-center justify-center gap-2 mt-4 md:mt-5">
+            <span class="text-white/60 text-[10px] md:text-xs font-semibold uppercase tracking-wide mr-1">Quick:</span>
+            <button onclick="quickFilter('agency')" class="chip !bg-white/15 !border-white/20 !text-white hover:!bg-white/25">🏢 Real Estate</button>
+            <button onclick="quickFilter('management')" class="chip !bg-white/15 !border-white/20 !text-white hover:!bg-white/25">🏘️ Property Mgmt</button>
+            <button onclick="quickFilter('cleaning')" class="chip !bg-white/15 !border-white/20 !text-white hover:!bg-white/25">🧹 Cleaning</button>
+        </div>
     </div>
 </section>
 
@@ -279,22 +279,15 @@
                         <div class="mb-5">
                             <h4 class="text-[11px] uppercase tracking-wider font-bold text-gray-500 mb-2.5">Location</h4>
                             <div class="space-y-2" id="locationFilters">
+                                                                <?php if (!empty($dbCities)): foreach (array_slice(array_keys($dbCities),0,8) as $city): ?>
                                 <label class="flex items-center gap-2.5 cursor-pointer group">
-                                    <input type="checkbox" value="Nairobi" class="agency-filter-checkbox w-4 h-4 rounded border-gray-300 text-agencyPurple focus:ring-agencyPurple">
-                                    <span class="text-xs text-gray-600 group-hover:text-agencyPurple transition-colors">Nairobi</span>
+                                    <input type="checkbox" value="<?php echo htmlspecialchars($city,ENT_QUOTES); ?>" class="agency-filter-checkbox w-4 h-4 rounded border-gray-300 text-agencyPurple focus:ring-agencyPurple">
+                                    <span class="text-xs text-gray-600 group-hover:text-agencyPurple transition-colors"><?php echo htmlspecialchars($city); ?></span>
                                 </label>
-                                <label class="flex items-center gap-2.5 cursor-pointer group">
-                                    <input type="checkbox" value="Mombasa" class="agency-filter-checkbox w-4 h-4 rounded border-gray-300 text-agencyPurple focus:ring-agencyPurple">
-                                    <span class="text-xs text-gray-600 group-hover:text-agencyPurple transition-colors">Mombasa</span>
-                                </label>
-                                <label class="flex items-center gap-2.5 cursor-pointer group">
-                                    <input type="checkbox" value="Kisumu" class="agency-filter-checkbox w-4 h-4 rounded border-gray-300 text-agencyPurple focus:ring-agencyPurple">
-                                    <span class="text-xs text-gray-600 group-hover:text-agencyPurple transition-colors">Kisumu</span>
-                                </label>
-                                <label class="flex items-center gap-2.5 cursor-pointer group">
-                                    <input type="checkbox" value="Nakuru" class="agency-filter-checkbox w-4 h-4 rounded border-gray-300 text-agencyPurple focus:ring-agencyPurple">
-                                    <span class="text-xs text-gray-600 group-hover:text-agencyPurple transition-colors">Nakuru</span>
-                                </label>
+                                <?php endforeach; else: ?>
+                                <label class="flex items-center gap-2.5 cursor-pointer group"><input type="checkbox" value="Nairobi" class="agency-filter-checkbox w-4 h-4 rounded border-gray-300 text-agencyPurple focus:ring-agencyPurple"><span class="text-xs text-gray-600 group-hover:text-agencyPurple transition-colors">Nairobi</span></label>
+                                <label class="flex items-center gap-2.5 cursor-pointer group"><input type="checkbox" value="Mombasa" class="agency-filter-checkbox w-4 h-4 rounded border-gray-300 text-agencyPurple focus:ring-agencyPurple"><span class="text-xs text-gray-600 group-hover:text-agencyPurple transition-colors">Mombasa</span></label>
+                                <?php endif; ?>
                             </div>
                         </div>
 
@@ -325,7 +318,7 @@
                 </div>
 
                     <!-- Stats card -->
-                    <div class="bg-gradient-to-br from-agencyPurple to-violet-700 rounded-2xl p-5 text-white shadow-xl shadow-agencyPurple/30">
+                    <!-- <div class="bg-gradient-to-br from-agencyPurple to-violet-700 rounded-2xl p-5 text-white shadow-xl shadow-agencyPurple/30">
                         <h3 class="font-serif text-lg font-semibold mb-3">Why HAVENTRA?</h3>
                         <div class="space-y-2.5 text-xs">
                             <div class="flex items-start gap-2">
@@ -341,16 +334,16 @@
                                 <span class="text-white/90">Direct contact — no middlemen, no hidden fees</span>
                             </div>
                         </div>
-                    </div>
+                    </div> -->
 
                     <!-- Join card -->
-                    <div class="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-5">
+                    <!-- <div class="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-5">
                         <h4 class="font-serif text-sm text-navy font-semibold mb-1.5">Are you a company?</h4>
                         <p class="text-[11px] text-gray-500 leading-relaxed mb-3">List your agency on HAVENTRA and reach thousands of clients looking for your services.</p>
                         <a href="/contact.html" class="inline-flex items-center gap-1.5 bg-agencyPurple text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-violet-800 transition-colors">
                             <i class="fas fa-plus-circle"></i> List Your Agency
                         </a>
-                    </div>
+                    </div> -->
 
                 </div>
             </aside>
@@ -363,7 +356,7 @@
                         <h2 class="font-serif text-2xl md:text-3xl text-navy font-semibold">
                             <span id="resultsCount">12</span> companies found
                         </h2>
-                        <p class="text-xs text-gray-500 mt-0.5" id="filterSummary">Showing all agencies and companies</p>
+                        <p class="text-xs text-gray-500 mt-0.5" id="filterSummary"></p>
                     </div>
                     <div class="flex items-center gap-2">
                         <div class="relative">
@@ -521,397 +514,9 @@
 /* ============================================================
    DATA — 12 companies (4 agencies, 4 management, 4 cleaning)
    ============================================================ */
-const agenciesData = [
-    // ===== REAL ESTATE AGENCIES =====
-    {
-        id: 'agency-1',
-        name: 'Prestige Realty Group',
-        category: 'agency',
-        categoryLabel: 'Real Estate Agency',
-        location: 'Westlands, Nairobi',
-        city: 'Nairobi',
-        rating: 5,
-        reviews: 128,
-        verified: true,
-        years: 15,
-        yearsLabel: '15+',
-        clients: '500+',
-        satisfaction: '98%',
-        icon: 'fa-handshake',
-        logo: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=200&q=80',
-        color: 'purple',
-        shortDesc: 'Luxury residential & commercial sales.',
-        tags: ['luxury', 'sales', 'commercial'],
-        about: 'Prestige Realty Group is a leading real estate agency specializing in high-end residential and commercial properties across Nairobi. With over 15 years of experience, we have built a reputation for integrity, professionalism, and exceptional client service. Our team of seasoned agents is dedicated to helping you find your perfect property or achieve the best price for your sale.',
-        achievements: [
-            'Top Real Estate Agency 2023 — Kenya Property Awards',
-            'Over 500 successful property transactions',
-            'Exclusive listing partner for 3 major developers',
-            'Featured in Business Daily & Property Magazine'
-        ],
-        services: ['Property Sales', 'Luxury Rentals', 'Investment Advisory', 'Valuation', 'Property Marketing'],
-        phone: '+254 700 111 222',
-        email: 'info@prestigerealty.co.ke',
-        whatsapp: '+254 700 111 222',
-        website: 'www.prestigerealty.co.ke'
-    },
-    {
-        id: 'agency-2',
-        name: 'Urban Nest Properties',
-        category: 'agency',
-        categoryLabel: 'Real Estate Agency',
-        location: 'Kilimani, Nairobi',
-        city: 'Nairobi',
-        rating: 4,
-        reviews: 86,
-        verified: true,
-        years: 8,
-        yearsLabel: '8+',
-        clients: '320+',
-        satisfaction: '95%',
-        icon: 'fa-city',
-        logo: 'https://images.unsplash.com/photo-1560518889-ce09f59e3a69?auto=format&fit=crop&w=200&q=80',
-        color: 'purple',
-        shortDesc: 'Modern apartments & townhouses.',
-        tags: ['city', 'apartments', 'investment'],
-        about: 'Urban Nest Properties focuses on the growing demand for modern, affordable urban housing. We connect young professionals and families with quality homes in Nairobi\'s most vibrant neighborhoods. Our deep knowledge of the urban market and commitment to transparent dealings make us the go-to agency for city living.',
-        achievements: [
-            'Rising Star Agency 2022 — East Africa Real Estate Summit',
-            '320+ satisfied clients and counting',
-            'Specialized in off-plan property investments',
-            'Official partner of 5 leading property developers'
-        ],
-        services: ['Apartment Rentals', 'Townhouse Sales', 'Off-Plan Investments', 'Relocation Support', 'Tenant Screening'],
-        phone: '+254 700 222 333',
-        email: 'hello@urbannest.co.ke',
-        whatsapp: '+254 700 222 333',
-        website: 'www.urbannest.co.ke'
-    },
-    {
-        id: 'agency-3',
-        name: 'Coastal Homes Ltd',
-        category: 'agency',
-        categoryLabel: 'Real Estate Agency',
-        location: 'Diani, Mombasa',
-        city: 'Mombasa',
-        rating: 4,
-        reviews: 94,
-        verified: true,
-        years: 10,
-        yearsLabel: '10+',
-        clients: '180+',
-        satisfaction: '96%',
-        icon: 'fa-water',
-        logo: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=200&q=80',
-        color: 'purple',
-        shortDesc: 'Beachfront & holiday property experts.',
-        tags: ['beachfront', 'luxury', 'holiday'],
-        about: 'Coastal Homes Ltd is the premier agency for beachfront properties, holiday villas, and vacation rentals along Kenya\'s stunning coastline. We help clients find their perfect seaside retreat or investment property. From Diani to Watamu, our local expertise ensures you get the best coastal property deals.',
-        achievements: [
-            'Best Coastal Agency 2023 — Mombasa Property Expo',
-            '180+ beachfront properties sold',
-            'Exclusive partner with 5 luxury resorts',
-            'Specialists in holiday rental management'
-        ],
-        services: ['Beachfront Sales', 'Holiday Rentals', 'Property Management', 'Investment Tours', 'Valuation'],
-        phone: '+254 700 333 444',
-        email: 'sales@coastalhomes.co.ke',
-        whatsapp: '+254 700 333 444',
-        website: 'www.coastalhomes.co.ke'
-    },
-    {
-        id: 'agency-4',
-        name: 'Summit & Valley Realty',
-        category: 'agency',
-        categoryLabel: 'Real Estate Agency',
-        location: 'Karen, Nairobi',
-        city: 'Nairobi',
-        rating: 5,
-        reviews: 156,
-        verified: true,
-        years: 20,
-        yearsLabel: '20+',
-        clients: '750+',
-        satisfaction: '99%',
-        icon: 'fa-mountain',
-        logo: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=200&q=80',
-        color: 'purple',
-        shortDesc: 'Premium estates & land sales.',
-        tags: ['luxury', 'land', 'estates'],
-        about: 'Summit & Valley Realty has been the trusted name in premium estate and land sales for over two decades. Our deep understanding of the local market and commitment to excellence set us apart. We specialize in high-value properties in Karen, Runda, and other prestigious neighborhoods, serving both local and international clients.',
-        achievements: [
-            'Lifetime Achievement Award 2022 — Kenya Real Estate Federation',
-            '750+ premium properties sold',
-            'Trusted by 3 diplomatic missions for housing',
-            'Top land sales agency in Nairobi for 5 consecutive years'
-        ],
-        services: ['Estate Sales', 'Land Acquisition', 'Property Development', 'Concierge Services', 'Legal Support'],
-        phone: '+254 700 444 555',
-        email: 'info@summitvalley.co.ke',
-        whatsapp: '+254 700 444 555',
-        website: 'www.summitvalley.co.ke'
-    },
-
-    // ===== PROPERTY MANAGEMENT =====
-    {
-        id: 'management-1',
-        name: 'Guardian Property Managers',
-        category: 'management',
-        categoryLabel: 'Property Management',
-        location: 'CBD, Nairobi',
-        city: 'Nairobi',
-        rating: 5,
-        reviews: 112,
-        verified: true,
-        years: 12,
-        yearsLabel: '12+',
-        clients: '200+',
-        satisfaction: '97%',
-        icon: 'fa-shield-alt',
-        logo: 'https://images.unsplash.com/photo-1556911212-b92d76c4e7ee?auto=format&fit=crop&w=200&q=80',
-        color: 'blue',
-        shortDesc: 'Full-service residential management.',
-        tags: ['management', 'residential'],
-        about: 'Guardian Property Managers offers comprehensive residential and commercial property management services. From tenant screening to maintenance coordination, we handle everything so you can enjoy passive income. Our dedicated team ensures your property is well-maintained and your tenants are happy.',
-        achievements: [
-            'Property Management Firm of the Year 2023',
-            '200+ properties under active management',
-            'Average tenant occupancy rate of 94%',
-            'ISO 9001:2015 certified management processes'
-        ],
-        services: ['Tenant Screening', 'Rent Collection', 'Maintenance', 'Financial Reporting', 'Legal Compliance'],
-        phone: '+254 700 555 666',
-        email: 'info@guardianpm.co.ke',
-        whatsapp: '+254 700 555 666',
-        website: 'www.guardianpm.co.ke'
-    },
-    {
-        id: 'management-2',
-        name: 'RentWise Solutions',
-        category: 'management',
-        categoryLabel: 'Property Management',
-        location: 'Westlands, Nairobi',
-        city: 'Nairobi',
-        rating: 4,
-        reviews: 78,
-        verified: true,
-        years: 6,
-        yearsLabel: '6+',
-        clients: '150+',
-        satisfaction: '93%',
-        icon: 'fa-laptop-house',
-        logo: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=200&q=80',
-        color: 'blue',
-        shortDesc: 'Tech-driven rental management.',
-        tags: ['management', 'tech', 'rentals'],
-        about: 'RentWise Solutions leverages technology to streamline rental management. Our digital platform gives landlords real-time insights into their properties, while tenants enjoy a seamless renting experience. From automated rent collection to smart maintenance scheduling, we make property management effortless.',
-        achievements: [
-            'Best PropTech Startup 2022 — Nairobi Innovation Week',
-            '150+ properties managed digitally',
-            'Reduced average vacancy period by 40%',
-            'Over 10,000 rent transactions processed'
-        ],
-        services: ['Digital Rent Collection', 'Smart Maintenance', 'Tenant Portals', 'Market Analytics', 'Automated Reports'],
-        phone: '+254 700 666 777',
-        email: 'hello@rentwise.co.ke',
-        whatsapp: '+254 700 666 777',
-        website: 'www.rentwise.co.ke'
-    },
-    {
-        id: 'management-3',
-        name: 'Sterling Facilities Co.',
-        category: 'management',
-        categoryLabel: 'Property Management',
-        location: 'Upper Hill, Nairobi',
-        city: 'Nairobi',
-        rating: 4,
-        reviews: 63,
-        verified: true,
-        years: 9,
-        yearsLabel: '9+',
-        clients: '120+',
-        satisfaction: '94%',
-        icon: 'fa-building',
-        logo: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?auto=format&fit=crop&w=200&q=80',
-        color: 'blue',
-        shortDesc: 'Commercial & office facility management.',
-        tags: ['management', 'commercial', 'office'],
-        about: 'Sterling Facilities Co. specializes in the management of commercial office spaces and mixed-use developments. We ensure your facilities run smoothly, creating productive environments for your tenants. Our services cover everything from cleaning and security to energy management and compliance.',
-        achievements: [
-            'Excellence in Commercial Management 2023',
-            '120+ commercial properties serviced',
-            'Serving 5 multinational corporate clients',
-            'Zero compliance violations in 3 years'
-        ],
-        services: ['Office Management', 'Facility Maintenance', 'Security Coordination', 'Energy Management', 'Compliance'],
-        phone: '+254 700 777 888',
-        email: 'info@sterlingfacilities.co.ke',
-        whatsapp: '+254 700 777 888',
-        website: 'www.sterlingfacilities.co.ke'
-    },
-    {
-        id: 'management-4',
-        name: 'HomeCare Custodians',
-        category: 'management',
-        categoryLabel: 'Property Management',
-        location: 'Lavington, Nairobi',
-        city: 'Nairobi',
-        rating: 5,
-        reviews: 89,
-        verified: true,
-        years: 7,
-        yearsLabel: '7+',
-        clients: '90+',
-        satisfaction: '98%',
-        icon: 'fa-home',
-        logo: 'https://images.unsplash.com/photo-1580587771525-78b9dba3b91d?auto=format&fit=crop&w=200&q=80',
-        color: 'blue',
-        shortDesc: 'Boutique residential property care.',
-        tags: ['management', 'luxury', 'residential'],
-        about: 'HomeCare Custodians provides boutique property management services for high-end residential properties. Our personalized approach ensures every home is maintained to the highest standard. We work with a select number of clients, giving each property the attention and care it deserves.',
-        achievements: [
-            'Client Choice Award 2023 — Residential Management',
-            '90+ luxury homes under management',
-            '100% landlord retention rate for 3 consecutive years',
-            'Featured in Kenya Homes Magazine'
-        ],
-        services: ['Luxury Home Management', 'Landlord Services', 'Tenant Relations', 'Emergency Response', 'Property Upgrades'],
-        phone: '+254 700 888 999',
-        email: 'care@homecare.co.ke',
-        whatsapp: '+254 700 888 999',
-        website: 'www.homecare.co.ke'
-    },
-
-    // ===== CLEANING COMPANIES =====
-    {
-        id: 'cleaning-1',
-        name: 'Sparkle & Shine Pro',
-        category: 'cleaning',
-        categoryLabel: 'Cleaning Company',
-        location: 'Industrial Area, Nairobi',
-        city: 'Nairobi',
-        rating: 5,
-        reviews: 203,
-        verified: true,
-        years: 10,
-        yearsLabel: '10+',
-        clients: '300+',
-        satisfaction: '99%',
-        icon: 'fa-spray-can',
-        logo: 'https://images.unsplash.com/photo-1556761175-5973dc0f32e7?auto=format&fit=crop&w=200&q=80',
-        color: 'teal',
-        shortDesc: 'Commercial & residential deep cleaning.',
-        tags: ['cleaning', 'commercial', 'residential'],
-        about: 'Sparkle & Shine Pro is Nairobi\'s most trusted cleaning company, offering a full range of commercial and residential cleaning services. Our trained professionals use eco-friendly products and state-of-the-art equipment to deliver spotless results every time. From offices to homes, we make spaces shine.',
-        achievements: [
-            'Best Cleaning Company 2023 — Nairobi Business Awards',
-            '300+ regular commercial clients',
-            'Eco-friendly certified by Green Kenya Initiative',
-            'Over 50,000 cleaning jobs completed'
-        ],
-        services: ['Office Cleaning', 'Deep Cleaning', 'Move-In/Move-Out', 'Post-Construction Cleaning', 'Carpet Cleaning'],
-        phone: '+254 700 999 000',
-        email: 'info@sparkleshine.co.ke',
-        whatsapp: '+254 700 999 000',
-        website: 'www.sparkleshine.co.ke'
-    },
-    {
-        id: 'cleaning-2',
-        name: 'PureSpace Cleaning',
-        category: 'cleaning',
-        categoryLabel: 'Cleaning Company',
-        location: 'Karen, Nairobi',
-        city: 'Nairobi',
-        rating: 4,
-        reviews: 147,
-        verified: true,
-        years: 5,
-        yearsLabel: '5+',
-        clients: '200+',
-        satisfaction: '96%',
-        icon: 'fa-broom',
-        logo: 'https://images.unsplash.com/photo-1541888946425-d81bb19940f4?auto=format&fit=crop&w=200&q=80',
-        color: 'teal',
-        shortDesc: 'Specialized residential & villa cleaning.',
-        tags: ['cleaning', 'residential', 'luxury'],
-        about: 'PureSpace Cleaning specializes in high-end residential cleaning, including villas, apartments, and holiday homes. We treat every home with the care and attention it deserves, ensuring a spotless and healthy living environment. Our teams are trained, vetted, and equipped with premium cleaning products.',
-        achievements: [
-            'Top Rated Cleaning Service 2023 — Customer Choice',
-            '200+ luxury homes cleaned monthly',
-            '100% satisfaction guarantee on all services',
-            'Trusted by 15 diplomatic residences'
-        ],
-        services: ['Villa Cleaning', 'Apartment Cleaning', 'Holiday Home Turnover', 'Carpet & Upholstery', 'Window Cleaning'],
-        phone: '+254 701 111 222',
-        email: 'hello@purespace.co.ke',
-        whatsapp: '+254 701 111 222',
-        website: 'www.purespace.co.ke'
-    },
-    {
-        id: 'cleaning-3',
-        name: 'FreshNest Services',
-        category: 'cleaning',
-        categoryLabel: 'Cleaning Company',
-        location: 'Kilimani, Nairobi',
-        city: 'Nairobi',
-        rating: 4,
-        reviews: 168,
-        verified: true,
-        years: 8,
-        yearsLabel: '8+',
-        clients: '250+',
-        satisfaction: '94%',
-        icon: 'fa-leaf',
-        logo: 'https://images.unsplash.com/photo-1503387762-592deb59ef4e?auto=format&fit=crop&w=200&q=80',
-        color: 'teal',
-        shortDesc: 'Eco-friendly home & office cleaning.',
-        tags: ['cleaning', 'eco', 'residential'],
-        about: 'FreshNest Services is committed to providing environmentally responsible cleaning solutions. We use only non-toxic, biodegradable products that are safe for your family, pets, and the planet. Our green cleaning approach doesn\'t compromise on quality — we deliver a deep clean every time.',
-        achievements: [
-            'Green Cleaning Award 2022 — Kenya Eco Forum',
-            '250+ eco-conscious clients',
-            'Reduced water usage by 30% through smart cleaning methods',
-            'Partnered with 10 green building complexes'
-        ],
-        services: ['Eco Home Cleaning', 'Green Office Cleaning', 'Sanitization', 'Window Cleaning', 'Floor Care'],
-        phone: '+254 701 222 333',
-        email: 'eco@freshnest.co.ke',
-        whatsapp: '+254 701 222 333',
-        website: 'www.freshnest.co.ke'
-    },
-    {
-        id: 'cleaning-4',
-        name: 'Crystal Clear Facilities',
-        category: 'cleaning',
-        categoryLabel: 'Cleaning Company',
-        location: 'Mombasa Road, Nairobi',
-        city: 'Nairobi',
-        rating: 5,
-        reviews: 234,
-        verified: true,
-        years: 12,
-        yearsLabel: '12+',
-        clients: '400+',
-        satisfaction: '97%',
-        icon: 'fa-industry',
-        logo: 'https://images.unsplash.com/photo-1493937672613-523e9f474c7a?auto=format&fit=crop&w=200&q=80',
-        color: 'teal',
-        shortDesc: 'Large-scale facility & industrial cleaning.',
-        tags: ['cleaning', 'industrial', 'commercial'],
-        about: 'Crystal Clear Facilities handles large-scale cleaning contracts for factories, warehouses, hospitals, and shopping malls. Our team is equipped to manage the most demanding cleaning challenges with precision and safety. We use industrial-grade equipment and follow strict safety protocols.',
-        achievements: [
-            'Excellence in Facility Cleaning 2023 — Industrial Awards',
-            '400+ facilities serviced across Kenya',
-            'ISO 9001:2015 certified cleaning processes',
-            'Serving 8 hospitals and 12 shopping malls'
-        ],
-        services: ['Industrial Cleaning', 'Warehouse Cleaning', 'Hospital Sanitization', 'Mall Cleaning', 'Fleet Cleaning'],
-        phone: '+254 701 333 444',
-        email: 'info@crystalclear.co.ke',
-        whatsapp: '+254 701 333 444',
-        website: 'www.crystalclear.co.ke'
-    }
-];
+const agenciesData = <?php echo json_encode($agencies, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;
+const INITIAL_Q = <?php echo json_encode($q, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;
+const INITIAL_CAT = <?php echo json_encode($activeCat, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT); ?>;
 
 /* ============================================================
    STATE
@@ -947,6 +552,10 @@ function getFilteredAgencies() {
 
     if (currentFilters.quickTag) {
         results = results.filter(a => a.category === currentFilters.quickTag);
+    }
+    if (currentFilters.search && currentFilters.search.trim()) {
+        const q = currentFilters.search.toLowerCase();
+        results = results.filter(a => ((a.name||'')+' '+(a.location||'')+' '+(a.city||'')+' '+(a.categoryLabel||'')+' '+(a.shortDesc||'')+' '+(a.about||'')+' '+(a.services||[]).join(' ')+' '+(a.tags||[]).join(' ')).toLowerCase().includes(q));
     }
 
     if (currentSort === 'rating') results.sort((a, b) => b.rating - a.rating);
@@ -984,7 +593,7 @@ function renderAgencies() {
     if (currentFilters.verified) summaryParts.push('verified only');
     summaryEl.textContent = summaryParts.length > 0
         ? 'Filtered by: ' + summaryParts.join(' · ')
-        : 'Showing all agencies and companies';
+        : '';
 
     // Active chips
     let chips = [];
@@ -1048,7 +657,7 @@ function renderAgencies() {
                     <!-- Top row: logo + name -->
                     <div class="flex items-start gap-3 mb-3">
                         <div class="agency-logo ${colors.iconBg} text-white overflow-hidden">
-                            ${a.logo ? `<img src="${a.logo}" alt="${a.name} logo" class="w-full h-full object-cover">` : `<i class="fas ${a.icon}"></i>`}
+                            ${a.logo ? `<img src="${a.logo}" alt="${a.name} logo" loading="lazy" decoding="async" class="w-full h-full object-cover">` : `<i class="fas ${a.icon}"></i>`}
                         </div>
                         <div class="flex-1 min-w-0">
                             <h3 class="font-serif text-sm md:text-base text-navy font-semibold leading-tight line-clamp-1">${a.name}</h3>
@@ -1160,20 +769,23 @@ function quickFilter(tag) {
 }
 
 function resetAllFilters() {
-    currentFilters = {category: 'all', locations: [], minRating: null, verified: false, quickTag: null};
+    currentFilters = {category: 'all', locations: [], minRating: null, verified: false, quickTag: null, search: ''};
     document.querySelectorAll('input[name="category"]').forEach(r => r.checked = false);
     document.querySelector('input[name="category"][value="all"]').checked = true;
     document.querySelectorAll('#locationFilters input[type="checkbox"]').forEach(cb => cb.checked = false);
     document.querySelectorAll('#ratingFilters .chip').forEach(c => c.classList.remove('active'));
     document.getElementById('verifiedToggle').checked = false;
+    const si = document.getElementById('searchAgency'); if (si) si.value = '';
     currentPage = 1;
     renderAgencies();
+    updateAgencyUrl();
 }
 
 function removeQuickTag() {
     currentFilters.quickTag = null;
     currentPage = 1;
     renderAgencies();
+    updateAgencyUrl();
 }
 function removeCategory() {
     currentFilters.category = 'all';
@@ -1257,7 +869,7 @@ function openAgencyModal(id) {
     const logoEl = document.getElementById('modalLogo');
     logoEl.className = `w-20 h-20 md:w-24 md:h-24 rounded-2xl flex items-center justify-center flex-shrink-0 shadow-inner overflow-hidden ${colors.iconBg} text-white`;
     logoEl.innerHTML = a.logo
-        ? `<img src="${a.logo}" alt="${a.name} logo" class="w-full h-full object-cover">`
+        ? `<img src="${a.logo}" alt="${a.name} logo" loading="lazy" decoding="async" class="w-full h-full object-cover">`
         : `<i class="fas ${a.icon} text-3xl md:text-4xl"></i>`;
 
     document.getElementById('modalName').textContent = a.name;
@@ -1324,10 +936,16 @@ document.addEventListener('keydown', function(e) {
 /* ============================================================
    INIT
    ============================================================ */
+function handleAgencySearch(e){ e.preventDefault(); currentFilters.search = (document.getElementById('searchAgency').value||'').toLowerCase(); currentPage=1; renderAgencies(); const g=document.getElementById('agenciesGrid'); if(g) g.scrollIntoView({behavior:'smooth',block:'start'}); updateAgencyUrl(); }
+function activateField(el){ el.classList.add('active'); setTimeout(()=>{const i=el.querySelector('input'); if(i) i.focus();},50); setTimeout(()=>el.classList.remove('active'),2000); }
+function updateAgencyUrl(){ try{ const p=new URLSearchParams(window.location.search); if(currentFilters.search) p.set('q', currentFilters.search); else p.delete('q'); const cat = currentFilters.quickTag || (currentFilters.category!=='all'?currentFilters.category:''); if(cat) p.set('category',cat); else p.delete('category'); const s=p.toString(); history.replaceState(null,'', window.location.pathname + (s?('?'+s):'')); }catch(e){} }
 document.addEventListener('DOMContentLoaded', function() {
+    const params = new URLSearchParams(window.location.search);
+    const q = (typeof INITIAL_Q!=='undefined' && INITIAL_Q) ? INITIAL_Q : (params.get('q')||params.get('search')||'');
+    const cat = (typeof INITIAL_CAT!=='undefined' && INITIAL_CAT && INITIAL_CAT!=='all') ? INITIAL_CAT : (params.get('category')||params.get('cat')||'all');
+    if(q){ currentFilters.search=String(q).toLowerCase(); const si=document.getElementById('searchAgency'); if(si) si.value=q; }
+    if(cat && cat!=='all' && ['agency','management','cleaning'].includes(cat)){ currentFilters.quickTag=cat; const rad=document.querySelector('input[name="category"][value="'+cat+'"]'); if(rad) rad.checked=true; }
     renderAgencies();
 });
 </script>
 
-</body>
-</html>

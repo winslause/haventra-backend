@@ -1101,9 +1101,49 @@
 
             <!-- DESKTOP MENU -->
             <ul class="nav-menu">
-                <!-- Mega Menu 1: Find Properties -->
+                <!-- Menu 1: Home -->
                 <li class="nav-item">
-                    <a href="<?= BASE_PATH ?>?page=houses" class="nav-link">
+                    <a href="<?= BASE_PATH ?>" class="nav-link">Home</a>
+                </li>
+
+                <!-- Menu 2: Book Stays -->
+                <li class="nav-item">
+                    <a href="/haventra/airbnb/" class="nav-link">
+                        Book Stays
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </a>
+                    <div class="dropdown">
+                        <ul class="dropdown-list">
+                            <li><a href="/haventra/marketplace/?kind=property&property_type=booking">All Short Stays</a></li>
+                            <li><a href="/haventra/airbnb/">Airbnb Accommodation</a></li>
+                            <li><a href="/haventra/airbnb/">BnB Accommodation</a></li>
+                            <li><a href="/haventra/airbnb/">Serviced Apartments</a></li>
+                            <li><a href="/haventra/airbnb/">Holiday Homes</a></li>
+                            <li><a href="/haventra/airbnb/">Luxury Stays</a></li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- Menu 3: Professionals (Now includes Cleaning) -->
+                <li class="nav-item">
+                    <a href="/haventra/agencies/" class="nav-link">
+                        Professionals
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    </a>
+                    <div class="dropdown">
+                        <ul class="dropdown-list">
+                            <li><a href="/haventra/marketplace/?kind=agency">All Agencies & Companies</a></li>
+                            <li><a href="/haventra/agencies/?category=agency">Real Estate Agencies</a></li>
+                            <li><a href="/haventra/agencies/?category=management">Property Managers</a></li>
+                            <li><a href="/haventra/agencies/">Find an Agent</a></li>
+                            <li><a href="/haventra/agencies/?category=cleaning">Cleaning Agencies</a></li>
+                        </ul>
+                    </div>
+                </li>
+
+                <!-- Menu 4: Find Properties (moved) -->
+                <li class="nav-item">
+                    <a href="/haventra/marketplace/" class="nav-link">
                         Find Properties
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                     </a>
@@ -1112,6 +1152,7 @@
                             <div class="mega-column">
                                 <h4>Residential Rentals</h4>
                                 <ul class="dropdown-list">
+                                    <li><a href="/haventra/marketplace/">Real Estate Marketplace</a></li>
                                     <li><a href="/haventra/houses-for-rent/">Houses for Rent</a></li>
                                     <li><a href="/haventra/apartments-for-rent/">Apartments for Rent</a></li>
                                     <li><a href="/haventra/bedsitters-for-rent/">Bedsitters</a></li>
@@ -1143,44 +1184,6 @@
                     </div>
                 </li>
 
-                <!-- Menu 2: Book Stays -->
-                <li class="nav-item">
-                    <a href="<?= BASE_PATH ?>?page=airbnb" class="nav-link">
-                        Book Stays
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    </a>
-                    <div class="dropdown">
-                        <ul class="dropdown-list">
-                            <li><a href="/haventra/airbnb/">Airbnb Accommodation</a></li>
-                            <li><a href="/haventra/bnb-accommodation/">BnB Accommodation</a></li>
-                            <li><a href="/haventra/serviced-apartments/">Serviced Apartments</a></li>
-                            <li><a href="/haventra/holiday-homes/">Holiday Homes</a></li>
-                            <li><a href="/haventra/luxury-accommodation/">Luxury Stays</a></li>
-                        </ul>
-                    </div>
-                </li>
-
-                <!-- Menu 3: Professionals (Now includes Cleaning) -->
-                <li class="nav-item">
-                    <a href="<?= BASE_PATH ?>?page=amenities" class="nav-link">
-                        Professionals
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                    </a>
-                    <div class="dropdown">
-                        <ul class="dropdown-list">
-                            <li><a href="/haventra/real-estate-agencies/">Real Estate Agencies</a></li>
-                            <li><a href="/haventra/property-management-companies/">Property Managers</a></li>
-                            <li><a href="/haventra/real-estate-agents/">Find an Agent</a></li>
-                            <li><a href="/haventra/cleaning-agencies/">Cleaning Agencies</a></li>
-                        </ul>
-                    </div>
-                </li>
-
-                <!-- Menu 4: Blog -->
-                <li class="nav-item">
-                    <a href="<?= BASE_PATH ?>?page=about" class="nav-link">Blog</a>
-                </li>
-
                 <!-- Menu 5: Contact Us -->
                 <li class="nav-item">
                     <a href="<?= BASE_PATH ?>?page=contact" class="nav-link text-[#F59E0B] font-bold">Contact Us</a>
@@ -1205,18 +1208,7 @@
         <div class="mobile-menu-wrapper" id="mobile-menu">
             
             <div class="mobile-nav-item">
-                <a href="#" class="mobile-nav-link mobile-dropdown-toggle">
-                    Find Properties
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                </a>
-                <div class="mobile-dropdown">
-                    <a href="/haventra/properties/">All Properties</a>
-                    <a href="/haventra/houses-for-rent/">Houses for Rent</a>
-                    <a href="/haventra/apartments-for-rent/">Apartments for Rent</a>
-                    <a href="/haventra/houses-for-sale/">Houses for Sale</a>
-                    <a href="/haventra/commercial-property-for-rent/">Commercial</a>
-                    <a href="/haventra/locations/">Locations</a>
-                </div>
+                <a href="<?= BASE_PATH ?>" class="mobile-nav-link">Home</a>
             </div>
 
             <div class="mobile-nav-item">
@@ -1225,10 +1217,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </a>
                 <div class="mobile-dropdown">
-                    <a href="/haventra/stays/">All Stays</a>
+                    <a href="/haventra/marketplace/?kind=property&property_type=booking">All Short Stays</a>
                     <a href="/haventra/airbnb/">Airbnb</a>
-                    <a href="/haventra/bnb-accommodation/">BnB</a>
-                    <a href="/haventra/holiday-homes/">Holiday Homes</a>
+                    <a href="/haventra/airbnb/">BnB</a>
+                    <a href="/haventra/airbnb/">Holiday Homes</a>
                 </div>
             </div>
 
@@ -1238,15 +1230,26 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </a>
                 <div class="mobile-dropdown">
-                    <a href="/haventra/real-estate-agencies/">Real Estate Agencies</a>
-                    <a href="/haventra/property-management-companies/">Property Managers</a>
-                    <a href="/haventra/real-estate-agents/">Agents</a>
-                    <a href="/haventra/cleaning-agencies/">Cleaning Agencies</a>
+                    <a href="/haventra/marketplace/?kind=agency">All Agencies & Companies</a>
+                    <a href="/haventra/agencies/?category=agency">Real Estate Agencies</a>
+                    <a href="/haventra/agencies/?category=management">Property Managers</a>
+                    <a href="/haventra/agencies/">Find an Agent</a>
+                    <a href="/haventra/agencies/?category=cleaning">Cleaning Agencies</a>
                 </div>
             </div>
 
             <div class="mobile-nav-item">
-                <a href="<?= BASE_PATH ?>?page=about" class="mobile-nav-link">Blog</a>
+                <a href="#" class="mobile-nav-link mobile-dropdown-toggle">
+                    Find Properties
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </a>
+                <div class="mobile-dropdown">
+                    <a href="/haventra/marketplace/">Real Estate Marketplace</a>
+                    <a href="/haventra/houses-for-rent/">Houses for Rent</a>
+                    <a href="/haventra/houses-for-sale/">Houses for Sale</a>
+                    <a href="/haventra/airbnb/">Short Stays</a>
+                    <a href="/haventra/locations/">Locations</a>
+                </div>
             </div>
 
             <div class="mobile-nav-item">
