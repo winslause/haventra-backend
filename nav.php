@@ -1141,9 +1141,9 @@
                     </div>
                 </li>
 
-                <!-- Menu 4: Find Properties (moved) -->
+                <!-- Menu 4: Home (swapped from Find Properties → Blog → Home) -->
                 <li class="nav-item">
-                    <a href="/haventra/marketplace/" class="nav-link">
+                    <a href="<?= BASE_PATH ?>" class="nav-link">
                         Find Properties
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
                     </a>
@@ -1239,7 +1239,7 @@
             </div>
 
             <div class="mobile-nav-item">
-                <a href="#" class="mobile-nav-link mobile-dropdown-toggle">
+                <a href="<?= BASE_PATH ?>" class="mobile-nav-link mobile-dropdown-toggle">
                     Find Properties
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </a>

@@ -26,28 +26,28 @@
                     <div>
                         <h4 class="text-white font-semibold mb-6">For Buyers</h4>
                         <ul class="space-y-3 text-[#c4e2ed]/70 text-sm">
-                            <li><a href="<?= BASE_PATH ?>?page=houses" class="hover:text-white transition-colors">Houses for Sale</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Apartments for Sale</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Commercial Properties</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Land for Sale</a></li>
+                            <li><a href="<?= BASE_PATH ?>" class="hover:text-white transition-colors">Home</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=marketplace" class="hover:text-white transition-colors">Marketplace</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=houses-for-sale" class="hover:text-white transition-colors">Houses for Sale</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=forsale" class="hover:text-white transition-colors">Properties for Sale</a></li>
                         </ul>
                     </div>
                     <div>
                         <h4 class="text-white font-semibold mb-6">For Renters</h4>
                         <ul class="space-y-3 text-[#c4e2ed]/70 text-sm">
-                            <li><a href="<?= BASE_PATH ?>?page=houses" class="hover:text-white transition-colors">Houses for Rent</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Apartments for Rent</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Short-Stay Stays</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Rooms</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=houses-for-rent" class="hover:text-white transition-colors">Houses for Rent</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=rentals" class="hover:text-white transition-colors">Rentals</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=airbnb" class="hover:text-white transition-colors">Short-Stay Stays</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=marketplace&kind=property&property_type=booking" class="hover:text-white transition-colors">Booking Marketplace</a></li>
                         </ul>
                     </div>
                     <div>
                         <h4 class="text-white font-semibold mb-6">Services</h4>
                         <ul class="space-y-3 text-[#c4e2ed]/70 text-sm">
-                            <li><a href="#" class="hover:text-white transition-colors">Property Management</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Cleaning Services</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Restaurant</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Amenities</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=marketplace&kind=agency" class="hover:text-white transition-colors">Agencies & Companies</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=agencies&category=management" class="hover:text-white transition-colors">Property Management</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=agencies&category=cleaning" class="hover:text-white transition-colors">Cleaning Services</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=agencies" class="hover:text-white transition-colors">Find an Agent</a></li>
                         </ul>
                     </div>
                     <div>
@@ -55,8 +55,8 @@
                         <ul class="space-y-3 text-[#c4e2ed]/70 text-sm">
                             <li><a href="<?= BASE_PATH ?>?page=about" class="hover:text-white transition-colors">About Us</a></li>
                             <li><a href="<?= BASE_PATH ?>?page=contact" class="hover:text-white transition-colors">Contact Us</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Terms of Service</a></li>
-                            <li><a href="#" class="hover:text-white transition-colors">Privacy Policy</a></li>
+                            <li><a href="<?= BASE_PATH ?>?page=marketplace" class="hover:text-white transition-colors">Marketplace</a></li>
+                            <li><a href="<?= BASE_PATH ?>" class="hover:text-white transition-colors">Home</a></li>
                         </ul>
                     </div>
                 </div>

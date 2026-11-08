@@ -72,11 +72,12 @@ if ($page === 'logout') {
 }
 
 // Pages that require authentication
-$protected_pages = ['admin', 'profile', 'payments', 'messages'];
+$protected_pages = ['admin', 'payments', 'messages'];
+// 'profile'/'profiles' are intentionally accessible for now; session role separation comes later.
 
 // Check if user is logged in for protected pages
 if (in_array($page, $protected_pages) && !isset($_SESSION['user_id'])) {
-    header('Location: ' . BASE_PATH . 'login');
+    header('Location: ' . BASE_PATH . '?page=login');
     exit;
 }
 
@@ -91,7 +92,9 @@ $pageMap = [
     'forsale' => 'forsale.php',
     'moving_services' => 'moving_services.php',
     'about' => 'about.php',
-    'profile' => 'profile.php',
+    'profile' => 'profiles.php',
+    'profiles' => 'profiles.php',
+    'dashboard' => 'profiles.php',
     'login' => 'login.php',
     'register' => 'register.php',
     'reset_password' => 'reset_password.php',
@@ -131,16 +134,23 @@ if (in_array($page, ['marketplace','realestate-marketplace','real-estate-marketp
 }
 
 
+$standalone_pages = ['profile','profiles','dashboard'];
 if (file_exists($viewPath)) {
-    require APP_PATH . 'nav.php';
-    require $viewPath;
-    require APP_PATH . 'contact-us.php';
-    require APP_PATH . 'footer.php';
+    if (in_array($page, $standalone_pages, true)) {
+        // Dashboard renders its own full HTML/layout and uses $pdo.
+        require $viewPath;
+    } else {
+        require APP_PATH . 'nav.php';
+        require $viewPath;
+        require APP_PATH . 'contact-us.php';
+        require APP_PATH . 'footer.php';
+    }
 } else {
     http_response_code(404);
     require APP_PATH . 'nav.php';
     require APP_PATH . 'contact-us.php';
-    require APP_PATH . '404.php';
+    if (file_exists(APP_PATH . '404.php')) require APP_PATH . '404.php';
+    else echo '<main style="padding:2rem;font-family:sans-serif"><h1>404</h1><p>Page not found.</p></main>';
     require APP_PATH . 'footer.php';
 }
 

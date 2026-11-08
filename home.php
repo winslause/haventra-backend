@@ -499,6 +499,7 @@ unset($props);
     }
 
     /* Thumbnail specific styles */
+    .featured-thumb {
         width: 60px;
         height: 45px;
         object-fit: cover;

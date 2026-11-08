@@ -50,11 +50,11 @@
                         <span class="w-1 h-4 bg-[#F59E0B] rounded-full"></span> Discover
                     </h4>
                     <ul class="space-y-2.5">
-                        <li><a href="<?= BASE_PATH ?>?page=houses" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Houses for Rent</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Apartments for Sale</a></li>
+                        <li><a href="<?= BASE_PATH ?>" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Home</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=marketplace" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Real Estate Marketplace</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=houses-for-rent" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Houses for Rent</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=houses-for-sale" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Houses for Sale</a></li>
                         <li><a href="<?= BASE_PATH ?>?page=airbnb" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Short-Stay Stays</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Commercial Spaces</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Top Locations</a></li>
                     </ul>
                 </div>
 
@@ -64,11 +64,11 @@
                         <span class="w-1 h-4 bg-[#4a90a0] rounded-full"></span> Professionals
                     </h4>
                     <ul class="space-y-2.5">
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Real Estate Agencies</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Property Management</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Cleaning Services</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Find an Agent</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">List Your Property</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=marketplace&kind=agency" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">All Agencies & Companies</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=agencies&category=agency" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Real Estate Agencies</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=agencies&category=management" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Property Management</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=agencies&category=cleaning" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Cleaning Services</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=agencies" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Find an Agent</a></li>
                     </ul>
                 </div>
 
@@ -80,9 +80,8 @@
                     <ul class="space-y-2.5">
                         <li><a href="<?= BASE_PATH ?>?page=about" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">About Us</a></li>
                         <li><a href="<?= BASE_PATH ?>?page=contact" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Contact Us</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Blog & News</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Help Centre / FAQs</a></li>
-                        <li><a href="#" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Pricing & Plans</a></li>
+                        <li><a href="<?= BASE_PATH ?>?page=marketplace" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Marketplace</a></li>
+                        <li><a href="<?= BASE_PATH ?>" class="text-gray-400 text-sm hover:text-[#4a90a0] transition-colors">Home</a></li>
                     </ul>
                 </div>
             </div>
