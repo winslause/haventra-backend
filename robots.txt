@@ -1,23 +1,9 @@
 User-agent: *
 Allow: /
-Allow: /?page=home
-Allow: /?page=houses
-Allow: /?page=houses-for-rent
-Allow: /?page=apartments-for-sale
-Allow: /?page=moving_services
-Allow: /?page=airbnb
-Allow: /?page=agencies
-Allow: /?page=search
-Allow: /?page=about
-Allow: /?page=contact
-Allow: /api/search.php
 
-Disallow: /?page=admin
-Disallow: /?page=profile
-Disallow: /?page=login
-Disallow: /?page=register
-Disallow: /?page=reset_password
-Disallow: /?page=payments
+Disallow: /admin/
 Disallow: /api/
+Disallow: /includes/
+Disallow: /test_
 
 Sitemap: https://haventra.com/sitemap.xml

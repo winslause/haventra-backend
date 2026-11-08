@@ -740,6 +740,8 @@ unset($props);
 // Leaflet Map for Featured Modal
     let featuredMap = null;
     let featuredMapMarker = null;
+    let featuredUserMarker = null;
+    let watchIdFeatured = null;
     let currentFeaturedLat = null;
     let currentFeaturedLng = null;
 
@@ -770,19 +772,107 @@ unset($props);
     }
 
     function closeFeaturedMap() {
+        if (watchIdFeatured !== null) {
+            navigator.geolocation.clearWatch(watchIdFeatured);
+            watchIdFeatured = null;
+        }
         if (featuredMap) {
             featuredMap.remove();
             featuredMap = null;
             featuredMapMarker = null;
+            featuredUserMarker = null;
         }
         currentFeaturedLat = null;
         currentFeaturedLng = null;
     }
 
-    function getFeaturedDirections() {
-        if (!currentFeaturedLat || !currentFeaturedLng) return;
-        const url = `https://www.google.com/maps/dir/?api=1&destination=${currentFeaturedLat},${currentFeaturedLng}&travelmode=driving`;
-        window.open(url, '_blank');
+    function getFeaturedDirections(lat, lng) {
+        lat = lat !== undefined ? lat : currentFeaturedLat;
+        lng = lng !== undefined ? lng : currentFeaturedLng;
+        if (!lat || !lng) return;
+        if (!navigator.geolocation) {
+            const mapDiv = document.getElementById('featuredMap');
+            mapDiv.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Geolocation not supported</p></div>';
+            return;
+        }
+        if (watchIdFeatured !== null) {
+            navigator.geolocation.clearWatch(watchIdFeatured);
+            watchIdFeatured = null;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            function(position) {
+                const userLat = position.coords.latitude;
+                const userLng = position.coords.longitude;
+                const url = `https://router.project-osrm.org/route/v1/driving/${userLng},${userLat};${lng},${lat}?overview=full&geometries=geojson`;
+                fetch(url)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.code === 'Ok' && data.routes[0]) {
+                            drawFeaturedRoute(userLat, userLng, lat, lng, data.routes[0].geometry.coordinates);
+                        }
+                    });
+            },
+            function(error) {
+                const mapDiv = document.getElementById('featuredMap');
+                if (error.code === error.PERMISSION_DENIED) {
+                    mapDiv.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400"><i class="fas fa-location-slash text-2xl mb-2"></i><p class="text-xs">Location permission denied</p></div>';
+                } else {
+                    mapDiv.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Unable to get your location</p></div>';
+                }
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+
+        watchIdFeatured = navigator.geolocation.watchPosition(
+            function(position) {
+                const userLat = position.coords.latitude;
+                const userLng = position.coords.longitude;
+                if (featuredUserMarker) {
+                    featuredUserMarker.setLatLng([userLat, userLng]).update();
+                    featuredMap.panTo([userLat, userLng]);
+                } else {
+                    featuredUserMarker = L.marker([userLat, userLng]).addTo(featuredMap).bindPopup('Your Location');
+                }
+            },
+            function(error) {
+                // Silent on watch errors
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+        );
+    }
+
+    function drawFeaturedRoute(userLat, userLng, propLat, propLng, coordinates) {
+        const mapDiv = document.getElementById('featuredMap');
+
+        if (featuredMap) {
+            featuredMap.eachLayer(function(layer) {
+                if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                    featuredMap.removeLayer(layer);
+                }
+            });
+        } else {
+            mapDiv.innerHTML = '';
+            featuredMap = L.map('featuredMap', {
+                center: [propLat, propLng],
+                zoom: 13,
+                zoomControl: false,
+                attributionControl: false
+            });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap'
+            }).addTo(featuredMap);
+        }
+
+        featuredMapMarker = L.marker([propLat, propLng]).addTo(featuredMap).bindPopup('Property Location').openPopup();
+        featuredUserMarker = L.marker([userLat, userLng]).addTo(featuredMap).bindPopup('Your Location');
+
+        const routeCoords = coordinates.map(c => [c[1], c[0]]);
+        L.polyline(routeCoords, { color: '#4a90a0', weight: 4, opacity: 0.8 }).addTo(featuredMap);
+
+        const bounds = L.latLngBounds(routeCoords.concat([[userLat, userLng], [propLat, propLng]]));
+        featuredMap.fitBounds(bounds, { padding: [40, 40] });
     }
 </script>
 

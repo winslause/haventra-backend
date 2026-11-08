@@ -1,10 +1,9 @@
 <?php
 // rentals.php - Houses & Apartments for Rent page
 // $pdo is already available from index.php
-// $page_title, $page_description, $page_canonical set below for SEO (used by any code after nav.php)
 
-$page_title = 'Houses & Apartments for Rent in Kenya | HAVENTRA Rentals';
-$page_description = 'Find houses, apartments, bedsitters, and family homes for rent in Kenya. Browse verified long-term rental listings in Nairobi, Mombasa, Kisumu, and beyond on HAVENTRA.';
+$page_title = 'Houses & Apartments for Rent | HAVENTRA Rentals';
+$page_description = 'Find houses, apartments, bedsitters, and family homes for rent. Browse verified long-term rental listings across all locations on HAVENTRA.';
 $page_canonical = 'https://haventra.com/rentals/';
 
 // Fetch rental properties from database
@@ -78,6 +77,259 @@ try {
     $rentals = [];
 }
 ?>
+<!-- ===== SEO META TAGS ===== -->
+<meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1">
+<meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large">
+<meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large">
+<meta name="language" content="English">
+<meta name="geo.region" content="World">
+<meta name="geo.placename" content="Worldwide">
+<meta name="geo.position" content="0;0">
+<meta name="ICBM" content="0, 0">
+<link rel="sitemap" href="/haventra/sitemap.xml">
+<link rel="alternate" href="https://haventra.com/rentals/" hreflang="en">
+<link rel="alternate" href="https://haventra.com/rentals/" hreflang="en-ke">
+<link rel="author" href="https://haventra.com/about/">
+
+<!-- Schema.org: RealEstateListing Aggregator -->
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "RealEstateAggregator",
+    "name": "HAVENTRA Rentals",
+    "url": "https://haventra.com/rentals/",
+    "description": "Find houses, apartments, bedsitters, and family homes for rent in Kenya.",
+    "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Nairobi",
+        "addressRegion": "Nairobi County",
+        "addressCountry": "KE"
+    },
+    "areaServed": [
+        <?php
+        $areaItems = [];
+        foreach ($topLocations as $loc => $count) {
+            $areaItems[] = '{"@type": "City", "name": "' . addslashes($loc) . '"}';
+        }
+        echo implode(',', $areaItems);
+        ?>
+    ],
+    "hasOfferCatalog": {
+        "@type": "OfferCatalog",
+        "name": "Rental Properties",
+        "itemListElement": [
+            <?php
+            $schemaItems = [];
+            foreach ($rentals as $idx => $r) {
+                $schemaItems[] = '{
+                    "@type": "RealEstateListing",
+                    "position": ' . ($idx + 1) . ',
+                    "itemOffered": {
+                        "@type": "Apartment",
+                        "name": "' . addslashes($r['title']) . '",
+                        "description": "' . addslashes($r['desc']) . '",
+                        "address": {
+                            "@type": "PostalAddress",
+                            "addressLocality": "' . addslashes($r['location']) . '",
+                            "addressCountry": "KE"
+                        },
+                        "numberOfRooms": ' . $r['beds'] . ',
+                        "floorSize": {
+                            "@type": "QuantitativeValue",
+                            "value": "' . $r['size'] . '",
+                            "unitText": "sqft"
+                        },
+                        "amenityFeature": [
+                            ' . implode(',', array_map(fn($a) => '{"@type":"AmenityFeature","name":"' . addslashes($a['label']) . '"}', $r['amenities'])) . ']
+                    },
+                    "priceSpecification": {
+                        "@type": "UnitPriceSpecification",
+                        "price": ' . $r['price'] . ',
+                        "priceCurrency": "KES",
+                        "pricingModel": "http://schema.org/MonthlyRate"
+                    }
+                }';
+            }
+            echo implode(',', $schemaItems);
+            ?>
+        ]
+    }
+}
+</script>
+
+<!-- Schema.org: Breadcrumb -->
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+        {
+            "@type": "ListItem",
+            "position": 1,
+            "name": "Home",
+            "item": "https://haventra.com/"
+        },
+        {
+            "@type": "ListItem",
+            "position": 2,
+            "name": "Rentals",
+            "item": "https://haventra.com/rentals/"
+        }
+    ]
+}
+</script>
+
+<!-- Schema.org: FAQ -->
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+        {
+            "@type": "Question",
+            "name": "What types of properties are available for rent?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "HAVENTRA offers houses, apartments, bedsitters, villas, townhouses, and studio lofts for rent across all locations."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "How do I schedule a viewing for a rental property?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Click the Schedule Viewing button on any property listing to book a viewing with our verified agents."
+            }
+        },
+        {
+            "@type": "Question",
+            "name": "Can I filter rental properties by price and location?",
+            "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, you can filter rental properties by location, price range, bedrooms, property type, and amenities using the filter sidebar on the left."
+            }
+        }
+    ]
+}
+</script>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+
+    /* ===== HERO ===== */
+    .rent-hero {
+        background: linear-gradient(135deg, rgba(0, 21, 64, 0.93), rgba(15, 118, 110, 0.82)),
+                    url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1600&q=80');
+        background-size: cover;
+        background-position: center;
+    }
+
+    .search-shell {
+        background: white;
+        border-radius: 9999px;
+        box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.4);
+        transition: all 0.3s ease;
+    }
+    @media (max-width: 767px) { .search-shell { border-radius: 24px; } }
+
+    .search-field {
+        transition: background 0.25s ease;
+        border-radius: 9999px;
+    }
+    .search-field:hover { background: #F3F4F6; }
+    .search-field.active { background: #F3F4F6; box-shadow: inset 0 0 0 2px #0F766E; }
+
+    .search-input {
+        background: transparent; border: none; outline: none;
+        width: 100%; font-size: 0.85rem; color: #1F2937;
+    }
+    .search-input::placeholder { color: #9CA3AF; }
+
+    /* ===== CHIPS ===== */
+    .chip {
+        padding: 6px 14px; border-radius: 9999px;
+        font-size: 0.75rem; font-weight: 500;
+        border: 1px solid #E5E7EB; background: white; color: #4B5563;
+        transition: all 0.25s ease; cursor: pointer; white-space: nowrap;
+    }
+    .chip:hover { border-color: #0F766E; color: #0F766E; }
+    .chip.active {
+        background: #0F766E; border-color: #0F766E; color: white;
+        box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
+    }
+
+    /* ===== RENTAL CARD ===== */
+    .rent-card {
+        background: white; border-radius: 18px; overflow: hidden;
+        cursor: pointer; transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+        border: 1px solid #F1F5F9;
+        box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.04);
+    }
+    .rent-card:hover {
+        transform: translateY(-6px);
+        box-shadow: 0 24px 40px -12px rgba(0, 0, 0, 0.18);
+        border-color: rgba(15, 118, 110, 0.25);
+    }
+    .rent-card .rent-img { transition: transform 0.7s cubic-bezier(0.25, 0.8, 0.25, 1); }
+    .rent-card:hover .rent-img { transform: scale(1.08); }
+
+    .favorite-btn {
+        position: absolute; top: 12px; right: 12px;
+        width: 34px; height: 34px; border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(4px);
+        display: flex; align-items: center; justify-content: center;
+        color: #374151; font-size: 0.8rem; transition: all 0.25s ease; z-index: 5;
+    }
+    .favorite-btn:hover { background: white; transform: scale(1.1); }
+    .favorite-btn.liked { color: #EF4444; }
+    .favorite-btn.liked i { animation: heartPop 0.35s ease; }
+    @keyframes heartPop { 0%{transform:scale(1);} 50%{transform:scale(1.4);} 100%{transform:scale(1);} }
+
+    .badge-rent {
+        position: absolute; top: 12px; left: 12px;
+        padding: 4px 12px; border-radius: 9999px;
+        font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.03em; color: white; z-index: 5;
+    }
+
+    /* ===== MODAL ===== */
+    #rentModal { opacity: 0; transition: opacity 0.3s ease; }
+    #rentModal.show { opacity: 1; }
+    #rentModal .modal-content {
+        transform: scale(0.95) translateY(10px);
+        transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    }
+    #rentModal.show .modal-content { transform: scale(1) translateY(0); }
+
+    /* ===== SCROLLBARS ===== */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .thin-scroll::-webkit-scrollbar { width: 6px; }
+    .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+    .thin-scroll::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+
+    @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(16px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .anim-fade-up { animation: fadeUp 0.5s ease both; }
+
+    .map-placeholder {
+        background: linear-gradient(135deg, #E0F2FE, #F0FDFA);
+        position: relative; overflow: hidden;
+    }
+    .map-placeholder::after {
+        content: ''; position: absolute; inset: 0;
+        background-image: 
+            linear-gradient(rgba(15, 118, 110, 0.08) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(15, 118, 110, 0.08) 1px, transparent 1px);
+        background-size: 30px 30px;
+    }
+    #rentalMap { width: 100%; height: 200px; border-radius: 12px; background: #eef2f2; }
+</style>
 
 <!-- ================= HERO WITH SEARCH ================= -->
 <section class="rent-hero relative pt-10 pb-16 md:pt-12 md:pb-24 px-4">
@@ -126,6 +378,68 @@ try {
     </div>
 </section>
 
+
+
+<!-- ===== SEO CONTENT ===== -->
+<?php
+// Build dynamic location list from database
+$dbLocations = [];
+foreach ($rentals as $r) {
+    $loc = $r['location'];
+    if (!isset($dbLocations[$loc])) {
+        $dbLocations[$loc] = 0;
+    }
+    $dbLocations[$loc]++;
+}
+arsort($dbLocations);
+$topLocations = array_slice($dbLocations, 0, 12, true);
+
+// Build dynamic property types from database
+$dbTypes = [];
+foreach ($rentals as $r) {
+    $t = $r['type'];
+    if (!isset($dbTypes[$t])) {
+        $dbTypes[$t] = 0;
+    }
+    $dbTypes[$t]++;
+}
+?>
+<section class="py-8 md:py-12 bg-white border-t border-gray-100">
+    <div class="max-w-7xl mx-auto px-4 md:px-6">
+        <div class="mb-8 md:mb-10">
+            <div>
+                <h2 class="font-serif text-xl md:text-2xl text-navy font-semibold mb-3">Houses & Apartments for Rent</h2>
+                <p class="text-gray-600 text-xs md:text-sm leading-relaxed mb-3">
+                    Searching for <strong>houses for rent</strong>? HAVENTRA is your trusted property marketplace for verified long-term rentals across <?php echo implode(', ', array_keys(array_slice($dbLocations, 0, 6))); ?> and more. Find your perfect rental home today.
+                </p>
+                <p class="text-gray-600 text-xs md:text-sm leading-relaxed mb-3">
+                    Our rental listings include detailed property information, high-quality photos, amenities, and exact location coordinates. Filter by <strong>price range</strong>, <strong>bedrooms</strong>, <strong>property type</strong>, and <strong>amenities</strong> to find your perfect rental home.
+                </p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 md:gap-6">
+            <div>
+                <h3 class="font-serif text-base md:text-lg text-navy font-semibold mb-2">Popular Rental Locations</h3>
+                <ul class="space-y-1 text-xs md:text-sm text-gray-600">
+                    <?php foreach ($topLocations as $loc => $count): ?>
+                    <li><a href="/haventra/houses-for-rent/?search=<?php echo urlencode($loc); ?>" class="text-rentGreen hover:underline transition-colors"><?php echo htmlspecialchars($loc); ?> (<?php echo $count; ?> rentals)</a></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <div>
+                <h3 class="font-serif text-base md:text-lg text-navy font-semibold mb-2">Rental Property Types</h3>
+                <ul class="space-y-1 text-xs md:text-sm text-gray-600">
+                    <?php foreach ($dbTypes as $type => $count): ?>
+                    <li><a href="/haventra/houses-for-rent/?type=<?php echo urlencode($type); ?>" class="text-rentGreen hover:underline transition-colors"><?php echo ucfirst(htmlspecialchars($type)); ?> for Rent (<?php echo $count; ?>)</a></li>
+                    <?php endforeach; ?>
+                    <li><a href="/haventra/houses-for-rent/" class="text-rentGreen hover:underline transition-colors">Furnished Rentals</a></li>
+                    <li><a href="/haventra/houses-for-rent/" class="text-rentGreen hover:underline transition-colors">Long-Term Rentals</a></li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</section>
 
 <!-- ================= MAIN CONTENT ================= -->
 <section class="relative -mt-8 md:-mt-12 pb-16 px-4 md:px-6">
@@ -249,7 +563,7 @@ try {
                 </div>
 
                     <!-- Map teaser -->
-                    <div class="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-4">
+                    <!-- <div class="bg-white rounded-2xl shadow-lg shadow-gray-200/50 border border-gray-100 p-4">
                         <h3 class="font-serif text-sm text-navy font-semibold mb-2.5 flex items-center gap-1.5">
                             <i class="fas fa-map-marked-alt text-rentGreen text-xs"></i> Explore on Map
                         </h3>
@@ -259,7 +573,7 @@ try {
                                 <p class="text-[10px] text-rentGreen font-semibold">View rentals on map</p>
                             </div>
                         </div>
-                    </div>
+                    </div> -->
 
                 </div>
             </aside>
@@ -270,7 +584,7 @@ try {
                 <div class="flex items-center justify-between gap-3 mb-5">
                     <div>
                         <h2 class="font-serif text-2xl md:text-3xl text-navy font-semibold">
-                            <span id="resultsCount">8</span> rentals available
+                            <span id="resultsCount"><?php echo count($rentals); ?></span> rentals available
                         </h2>
                         <p class="text-xs text-gray-500 mt-0.5" id="filterSummary"></p>
                     </div>
@@ -289,8 +603,53 @@ try {
 
                 <div id="activeFilters" class="flex flex-wrap gap-1.5 mb-4 hidden"></div>
 
-                <div id="rentalsGrid" class="grid grid-cols-2 gap-0.5 min-[375px]:gap-1 sm:gap-2 md:gap-5">
-                    <!-- Cards injected -->
+                <div id="rentalsGrid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-5">
+                    <?php foreach ($rentals as $r): 
+                        $badgeColor = ($r['type'] === 'villa') ? 'bg-rentGold'
+                            : (($r['type'] === 'house') ? 'bg-navy'
+                            : (($r['type'] === 'townhouse') ? 'bg-indigo-600'
+                            : (($r['type'] === 'bedsitter') ? 'bg-emerald-600'
+                            : 'bg-rentGreen')));
+                    ?>
+                    <article class="rent-card anim-fade-up group" onclick="openRentModal('<?php echo $r['id']; ?>')">
+                        <div class="relative h-52 overflow-hidden">
+                            <img src="<?php echo $r['images'][0]; ?>" alt="<?php echo $r['title']; ?>" class="rent-img w-full h-full object-cover">
+                            <span class="badge-rent <?php echo $badgeColor; ?>"><?php echo $r['badge']; ?></span>
+                            <?php if ($r['furnished']): ?>
+                            <span class="absolute top-3 left-3 mt-7 bg-accentOrange text-white text-[9px] font-bold px-2 py-0.5 rounded-full"><i class="fas fa-couch mr-0.5"></i>Furnished</span>
+                            <?php endif; ?>
+                            <button onclick="toggleFavorite(event, this)" class="favorite-btn" aria-label="Save">
+                                <i class="far fa-heart"></i>
+                            </button>
+                        </div>
+                        <div class="p-3.5">
+                            <div class="flex items-start justify-between gap-2 mb-1">
+                                <h3 class="font-serif text-base md:text-lg text-navy font-semibold leading-tight line-clamp-1"><?php echo $r['title']; ?></h3>
+                                <div class="flex items-center gap-1 flex-shrink-0">
+                                    <i class="fas fa-star text-accentOrange text-[10px]"></i>
+                                    <span class="text-xs font-semibold text-navy"><?php echo $r['rating']; ?></span>
+                                </div>
+                            </div>
+                            <p class="text-[11px] text-gray-500 mb-2 line-clamp-1">
+                                <i class="fas fa-map-marker-alt text-rentGreen text-[9px] mr-1"></i><?php echo $r['location']; ?>
+                            </p>
+                            <div class="flex items-center gap-2 text-[10px] text-gray-400 mb-2.5">
+                                <span><i class="fas fa-bed mr-0.5"></i><?php echo $r['beds']; ?> Beds</span>
+                                <span>·</span>
+                                <span><i class="fas fa-bath mr-0.5"></i><?php echo $r['baths']; ?> Baths</span>
+                                <span>·</span>
+                                <span><i class="fas fa-car mr-0.5"></i><?php echo $r['parking']; ?></span>
+                            </div>
+                            <div class="flex items-end justify-between pt-2.5 border-t border-gray-100">
+                                <div>
+                                    <span class="text-base md:text-lg font-bold text-navy">KSh <?php echo number_format($r['price']); ?></span>
+                                    <span class="text-[10px] text-gray-400">/ month</span>
+                                </div>
+                                <span class="text-[10px] text-gray-400"><?php echo $r['reviews']; ?> reviews</span>
+                            </div>
+                        </div>
+                    </article>
+                    <?php endforeach; ?>
                 </div>
 
                 <div id="emptyState" class="hidden text-center py-20">
@@ -427,7 +786,7 @@ try {
                         </div>
                     </div>
 
-                    <!-- Google Map -->
+                    <!-- Google Map placeholder -->
                     <div class="mb-5">
                         <h3 class="font-serif text-lg md:text-xl text-navy font-semibold mb-2.5">
                             <i class="fas fa-map-marker-alt text-rentGreen mr-1.5 text-sm"></i> Property Location
@@ -489,6 +848,9 @@ try {
                         <button class="w-full py-3 bg-gradient-to-r from-rentGreen to-emerald-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-rentGreen/30 hover:shadow-xl hover:shadow-rentGreen/40 transition-all mt-3">
                             <i class="fas fa-calendar-check mr-2"></i> Schedule Viewing
                         </button>
+                        <button onclick="getDirections()" class="w-full py-2.5 border border-rentGreen text-rentGreen text-sm font-semibold rounded-xl hover:bg-rentGreen hover:text-white transition-colors mt-2">
+                            <i class="fas fa-route mr-1.5"></i> Get Directions
+                        </button>
                         <button class="w-full py-2.5 mt-2 border border-gray-200 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors">
                             <i class="fas fa-envelope mr-1.5"></i> Contact Agent
                         </button>
@@ -503,122 +865,6 @@ try {
         </div>
     </div>
 </div>
-
-<!-- ================= PAGE-SPECIFIC CSS ================= -->
-<style>
-    * { -webkit-tap-highlight-color: transparent; }
-
-    /* ===== HERO ===== */
-    .rent-hero {
-        background: linear-gradient(135deg, rgba(0, 21, 64, 0.93), rgba(15, 118, 110, 0.82)),
-                    url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1600&q=80');
-        background-size: cover;
-        background-position: center;
-    }
-
-    .search-shell {
-        background: white;
-        border-radius: 9999px;
-        box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.4);
-        transition: all 0.3s ease;
-    }
-    @media (max-width: 767px) { .search-shell { border-radius: 24px; } }
-
-    .search-field {
-        transition: background 0.25s ease;
-        border-radius: 9999px;
-    }
-    .search-field:hover { background: #F3F4F6; }
-    .search-field.active { background: #F3F4F6; box-shadow: inset 0 0 0 2px #0F766E; }
-
-    .search-input {
-        background: transparent; border: none; outline: none;
-        width: 100%; font-size: 0.85rem; color: #1F2937;
-    }
-    .search-input::placeholder { color: #9CA3AF; }
-
-    /* ===== CHIPS ===== */
-    .chip {
-        padding: 6px 14px; border-radius: 9999px;
-        font-size: 0.75rem; font-weight: 500;
-        border: 1px solid #E5E7EB; background: white; color: #4B5563;
-        transition: all 0.25s ease; cursor: pointer; white-space: nowrap;
-    }
-    .chip:hover { border-color: #0F766E; color: #0F766E; }
-    .chip.active {
-        background: #0F766E; border-color: #0F766E; color: white;
-        box-shadow: 0 4px 12px rgba(15, 118, 110, 0.3);
-    }
-
-    /* ===== RENTAL CARD ===== */
-    .rent-card {
-        background: white; border-radius: 18px; overflow: hidden;
-        cursor: pointer; transition: all 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
-        border: 1px solid #F1F5F9;
-        box-shadow: 0 4px 10px -2px rgba(0, 0, 0, 0.04);
-    }
-    .rent-card:hover {
-        transform: translateY(-6px);
-        box-shadow: 0 24px 40px -12px rgba(0, 0, 0, 0.18);
-        border-color: rgba(15, 118, 110, 0.25);
-    }
-    .rent-card .rent-img { transition: transform 0.7s cubic-bezier(0.25, 0.8, 0.25, 1); }
-    .rent-card:hover .rent-img { transform: scale(1.08); }
-
-    .favorite-btn {
-        position: absolute; top: 12px; right: 12px;
-        width: 34px; height: 34px; border-radius: 9999px;
-        background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(4px);
-        display: flex; align-items: center; justify-content: center;
-        color: #374151; font-size: 0.8rem; transition: all 0.25s ease; z-index: 5;
-    }
-    .favorite-btn:hover { background: white; transform: scale(1.1); }
-    .favorite-btn.liked { color: #EF4444; }
-    .favorite-btn.liked i { animation: heartPop 0.35s ease; }
-    @keyframes heartPop { 0%{transform:scale(1);} 50%{transform:scale(1.4);} 100%{transform:scale(1);} }
-
-    .badge-rent {
-        position: absolute; top: 12px; left: 12px;
-        padding: 4px 12px; border-radius: 9999px;
-        font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
-        letter-spacing: 0.03em; color: white; z-index: 5;
-    }
-
-    /* ===== MODAL ===== */
-    #rentModal { opacity: 0; transition: opacity 0.3s ease; }
-    #rentModal.show { opacity: 1; }
-    #rentModal .modal-content {
-        transform: scale(0.95) translateY(10px);
-        transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-    }
-    #rentModal.show .modal-content { transform: scale(1) translateY(0); }
-
-    /* ===== SCROLLBARS ===== */
-    .no-scrollbar::-webkit-scrollbar { display: none; }
-    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    .thin-scroll::-webkit-scrollbar { width: 6px; }
-    .thin-scroll::-webkit-scrollbar-track { background: transparent; }
-    .thin-scroll::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
-
-    @keyframes fadeUp {
-        from { opacity: 0; transform: translateY(16px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .anim-fade-up { animation: fadeUp 0.5s ease both; }
-
-    .map-placeholder {
-        background: linear-gradient(135deg, #E0F2FE, #F0FDFA);
-        position: relative; overflow: hidden;
-    }
-    .map-placeholder::after {
-        content: ''; position: absolute; inset: 0;
-        background-image: 
-            linear-gradient(rgba(15, 118, 110, 0.08) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(15, 118, 110, 0.08) 1px, transparent 1px);
-        background-size: 30px 30px;
-    }
-    #rentalMap { width: 100%; height: 200px; border-radius: 12px; background: #eef2f2; }
-</style>
 
 <!-- ================= SCRIPT ================= -->
 <script>
@@ -646,8 +892,6 @@ let currentPage = 1;
 const PER_PAGE = 6;
 let modalSlideInterval = null;
 let modalSlideIndex = 0;
-let map = null;
-let marker = null;
 
 /* ============================================================
    FILTERING
@@ -699,7 +943,7 @@ function getFilteredRentals() {
     }
 
     if (currentSort === 'price-low') results.sort((a, b) => a.price - b.price);
-    else if (currentSort === 'price-high') results = results.sort((a, b) => b.price - a.price);
+    else if (currentSort === 'price-high') results.sort((a, b) => b.price - a.price);
     else if (currentSort === 'rating') results.sort((a, b) => b.rating - a.rating);
 
     return results;
@@ -1041,45 +1285,146 @@ function toggleFavorite(e, btn) {
 }
 
 /* ============================================================
-   GOOGLE MAPS
+   LEAFLET + OSRM MAPS (free, no API key)
    ============================================================ */
+let map = null;
+let marker = null;
+let userMarker = null;
+let watchId = null;
+let currentModalLat = null;
+let currentModalLng = null;
+
 function initPropertyMap(lat, lng) {
-    if (typeof google === 'undefined' || !google.maps) {
-        const mapEl = document.getElementById('rentalMap');
-        mapEl.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-100"><i class="fas fa-map-marker-alt text-2xl mb-2"></i><p class="text-xs">Map unavailable</p></div>';
-        return;
-    }
     const mapEl = document.getElementById('rentalMap');
     if (!lat || !lng) {
         mapEl.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400"><i class="fas fa-map-marker-alt text-2xl mb-2"></i><p class="text-xs">Location not available</p></div>';
         return;
     }
-    const position = { lat: lat, lng: lng };
-    map = new google.maps.Map(mapEl, {
-        center: position,
+    mapEl.innerHTML = '';
+    map = L.map(mapEl, {
+        center: [lat, lng],
         zoom: 15,
-        disableDefaultUI: true,
         zoomControl: true,
-        styles: [
-            { featureType: 'poi', elementType: 'labels', stylers: [{ visibility: 'off' }] }
-        ]
+        attributionControl: false
     });
-    marker = new google.maps.Marker({
-        position: position,
-        map: map,
-        title: 'Property Location'
-    });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+    }).addTo(map);
+    marker = L.marker([lat, lng]).addTo(map).bindPopup('Property Location').openPopup();
 }
 
 function destroyMap() {
+    if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
     if (map) {
+        try { map.remove(); } catch (e) {}
         map = null;
     }
-    if (marker) {
-        marker = null;
-    }
+    marker = null;
+    userMarker = null;
     const mapEl = document.getElementById('rentalMap');
     mapEl.innerHTML = '';
+}
+
+function getDirections(lat, lng) {
+    lat = lat !== undefined ? lat : currentModalLat;
+    lng = lng !== undefined ? lng : currentModalLng;
+    if (!lat || !lng) return;
+    if (!navigator.geolocation) {
+        const mapEl = document.getElementById('rentalMap');
+        mapEl.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Geolocation not supported</p></div>';
+        return;
+    }
+    if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+    }
+
+    // Get initial position first, then watch
+    navigator.geolocation.getCurrentPosition(
+        function(position) {
+            const userLat = position.coords.latitude;
+            const userLng = position.coords.longitude;
+            const url = `https://router.project-osrm.org/route/v1/driving/${userLng},${userLat};${lng},${lat}?overview=full&geometries=geojson`;
+            fetch(url)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.code === 'Ok' && data.routes[0]) {
+                        drawRouteOnMap(userLat, userLng, lat, lng, data.routes[0].geometry.coordinates);
+                    }
+                });
+        },
+        function(error) {
+            const mapEl = document.getElementById('rentalMap');
+            if (error.code === error.PERMISSION_DENIED) {
+                mapEl.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400"><i class="fas fa-location-slash text-2xl mb-2"></i><p class="text-xs">Location permission denied</p></div>';
+            } else {
+                mapEl.innerHTML = '<div class="w-full h-full flex flex-col items-center justify-center text-gray-400"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-xs">Unable to get your location</p></div>';
+            }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+
+    // Start watching position every ~5 seconds
+    watchId = navigator.geolocation.watchPosition(
+        function(position) {
+            const userLat = position.coords.latitude;
+            const userLng = position.coords.longitude;
+            if (userMarker) {
+                userMarker.setLatLng([userLat, userLng]).update();
+                // Optionally pan map slightly to follow user
+                map.panTo([userLat, userLng]);
+            } else {
+                userMarker = L.marker([userLat, userLng]).addTo(map).bindPopup('Your Location');
+            }
+        },
+        function(error) {
+            // Silent on watch errors
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+    );
+}
+
+function drawRouteOnMap(userLat, userLng, propLat, propLng, coordinates) {
+    const mapEl = document.getElementById('rentalMap');
+
+    // Reuse existing map or create new one
+    if (map) {
+        map.eachLayer(function(layer) {
+            if (layer instanceof L.Marker || layer instanceof L.Polyline) {
+                map.removeLayer(layer);
+            }
+        });
+    } else {
+        mapEl.innerHTML = '';
+        map = L.map(mapEl, {
+            center: [propLat, propLng],
+            zoom: 13,
+            zoomControl: true,
+            attributionControl: false
+        });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+    }
+
+    // Property marker
+    marker = L.marker([propLat, propLng]).addTo(map).bindPopup('Property Location').openPopup();
+
+    // User marker
+    userMarker = L.marker([userLat, userLng]).addTo(map).bindPopup('Your Location');
+
+    // Draw route line (OSRM returns [lng, lat], Leaflet needs [lat, lng])
+    const routeCoords = coordinates.map(c => [c[1], c[0]]);
+    L.polyline(routeCoords, { color: '#0F766E', weight: 4, opacity: 0.8 }).addTo(map);
+
+    // Fit bounds to show both markers and route
+    const bounds = L.latLngBounds(routeCoords.concat([[userLat, userLng], [propLat, propLng]]));
+    map.fitBounds(bounds, { padding: [40, 40] });
 }
 
 /* ============================================================
@@ -1108,6 +1453,8 @@ function openRentModal(id) {
     document.getElementById('modalPhotoCount').textContent = r.images.length;
     document.getElementById('modalBadge').textContent = r.badge;
     document.getElementById('modalFurnished').classList.toggle('hidden', !r.furnished);
+    currentModalLat = r.lat;
+    currentModalLng = r.lng;
 
     // Price breakdown
     document.getElementById('modalRentLine').textContent = `KSh ${r.price.toLocaleString()}`;
@@ -1202,7 +1549,9 @@ document.addEventListener('keydown', function(e) {
 /* ============================================================
    INIT
    ============================================================ */
-document.addEventListener('DOMContentLoaded', function() {
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderRentals);
+} else {
     renderRentals();
-});
+}
 </script>
