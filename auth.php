@@ -1,315 +1,275 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In / Register — HAVENTRA</title>
-    <meta name="description" content="Sign in or create your HAVENTRA account to buy, rent, sell, book, or list properties.">
-    <meta name="robots" content="noindex, nofollow">
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Montserrat:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- ================= AUTH PAGE STYLES ================= -->
+<style>
+    /* ===== SPLIT HERO ===== */
+    .auth-hero {
+        background: linear-gradient(135deg, rgba(0, 21, 64, 0.95), rgba(0, 91, 181, 0.85)),
+                    url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1600&q=80');
+        background-size: cover;
+        background-position: center;
+    }
 
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        navy: '#00215E',
-                        navyLight: '#001540',
-                        accentOrange: '#F59E0B',
-                        accentBlue: '#005BB5',
-                        authPurple: '#6D28D9',
-                    },
-                    fontFamily: {
-                        sans: ['Plus Jakarta Sans', 'Montserrat', 'sans-serif'],
-                        serif: ['Cormorant Garamond', 'serif'],
-                    }
-                }
-            }
-        }
-    </script>
+    /* ===== MODAL BASE ===== */
+    .auth-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
+    }
+    .auth-modal.active {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    .auth-modal-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 15, 40, 0.75);
+        backdrop-filter: blur(8px);
+    }
+    .auth-modal-panel {
+        position: relative;
+        background: white;
+        border-radius: 24px;
+        width: 100%;
+        max-width: 460px;
+        max-height: calc(100vh - 32px);
+        overflow-y: auto;
+        box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.5);
+        transform: scale(0.94) translateY(16px);
+        transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
+    }
+    .auth-modal.active .auth-modal-panel {
+        transform: scale(1) translateY(0);
+    }
+    .auth-modal-panel::-webkit-scrollbar { width: 6px; }
+    .auth-modal-panel::-webkit-scrollbar-track { background: transparent; }
+    .auth-modal-panel::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
 
-    <style>
-        * { -webkit-tap-highlight-color: transparent; }
-        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    /* ===== INPUTS ===== */
+    .auth-input {
+        width: 100%;
+        padding: 13px 14px 13px 42px;
+        background: #F8FAFC;
+        border: 1.5px solid #E2E8F0;
+        border-radius: 12px;
+        font-size: 14px;
+        color: #1E293B;
+        transition: all 0.25s ease;
+        outline: none;
+    }
+    .auth-input::placeholder { color: #94A3B8; font-size: 13px; }
+    .auth-input:focus {
+        background: white;
+        border-color: #005BB5;
+        box-shadow: 0 0 0 4px rgba(0, 91, 181, 0.12);
+    }
+    .auth-input.error {
+        border-color: #EF4444;
+        background: #FEF2F2;
+    }
+    .input-icon {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94A3B8;
+        font-size: 13px;
+        transition: color 0.25s ease;
+    }
+    .auth-input:focus ~ .input-icon {
+        color: #005BB5;
+    }
 
-        /* ===== SPLIT HERO ===== */
-        .auth-hero {
-            background: linear-gradient(135deg, rgba(0, 21, 64, 0.95), rgba(0, 91, 181, 0.85)),
-                        url('https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1600&q=80');
-            background-size: cover;
-            background-position: center;
-        }
+    /* ===== BUTTONS ===== */
+    .btn-primary {
+        width: 100%;
+        padding: 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 700;
+        color: white;
+        background: linear-gradient(135deg, #00215E, #005BB5);
+        box-shadow: 0 8px 20px -4px rgba(0, 91, 181, 0.4);
+        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        cursor: pointer;
+        border: none;
+    }
+    .btn-primary:hover {
+        box-shadow: 0 12px 28px -4px rgba(0, 91, 181, 0.55);
+        transform: translateY(-1px);
+    }
+    .btn-primary:active { transform: translateY(0) scale(0.99); }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
 
-        /* ===== MODAL BASE ===== */
-        .auth-modal {
-            position: fixed;
-            inset: 0;
-            z-index: 1000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 16px;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s ease;
-        }
-        .auth-modal.active {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        .auth-modal-backdrop {
-            position: absolute;
-            inset: 0;
-            background: rgba(0, 15, 40, 0.75);
-            backdrop-filter: blur(8px);
-        }
-        .auth-modal-panel {
-            position: relative;
-            background: white;
-            border-radius: 24px;
-            width: 100%;
-            max-width: 460px;
-            max-height: calc(100vh - 32px);
-            overflow-y: auto;
-            box-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.5);
-            transform: scale(0.94) translateY(16px);
-            transition: transform 0.35s cubic-bezier(0.25, 0.8, 0.25, 1);
-        }
-        .auth-modal.active .auth-modal-panel {
-            transform: scale(1) translateY(0);
-        }
-        .auth-modal-panel::-webkit-scrollbar { width: 6px; }
-        .auth-modal-panel::-webkit-scrollbar-track { background: transparent; }
-        .auth-modal-panel::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+    .btn-social {
+        width: 100%;
+        padding: 12px;
+        border-radius: 12px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #374151;
+        background: white;
+        border: 1.5px solid #E2E8F0;
+        transition: all 0.25s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        cursor: pointer;
+    }
+    .btn-social:hover {
+        background: #F8FAFC;
+        border-color: #CBD5E1;
+    }
 
-        /* ===== INPUTS ===== */
-        .auth-input {
-            width: 100%;
-            padding: 13px 14px 13px 42px;
-            background: #F8FAFC;
-            border: 1.5px solid #E2E8F0;
-            border-radius: 12px;
-            font-size: 14px;
-            color: #1E293B;
-            transition: all 0.25s ease;
-            outline: none;
-        }
-        .auth-input::placeholder { color: #94A3B8; font-size: 13px; }
-        .auth-input:focus {
-            background: white;
-            border-color: #005BB5;
-            box-shadow: 0 0 0 4px rgba(0, 91, 181, 0.12);
-        }
-        .auth-input.error {
-            border-color: #EF4444;
-            background: #FEF2F2;
-        }
-        .input-icon {
-            position: absolute;
-            left: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #94A3B8;
-            font-size: 13px;
-            transition: color 0.25s ease;
-        }
-        .auth-input:focus ~ .input-icon {
-            color: #005BB5;
-        }
+    /* ===== ROLE SELECTOR ===== */
+    .role-card {
+        flex: 1;
+        padding: 14px 8px;
+        border-radius: 14px;
+        border: 2px solid #E2E8F0;
+        background: white;
+        cursor: pointer;
+        transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+        text-align: center;
+    }
+    .role-card:hover { border-color: #CBD5E1; transform: translateY(-2px); }
+    .role-card.selected {
+        border-color: #005BB5;
+        background: linear-gradient(135deg, rgba(0, 91, 181, 0.06), rgba(0, 33, 94, 0.04));
+        box-shadow: 0 4px 16px -4px rgba(0, 91, 181, 0.25);
+    }
+    .role-card.selected .role-icon {
+        background: linear-gradient(135deg, #00215E, #005BB5);
+        color: white;
+        transform: scale(1.08);
+    }
+    .role-icon {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background: #F1F5F9;
+        color: #64748B;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 8px;
+        font-size: 17px;
+        transition: all 0.25s ease;
+    }
 
-        /* ===== BUTTONS ===== */
-        .btn-primary {
-            width: 100%;
-            padding: 14px;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 700;
-            color: white;
-            background: linear-gradient(135deg, #00215E, #005BB5);
-            box-shadow: 0 8px 20px -4px rgba(0, 91, 181, 0.4);
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-            cursor: pointer;
-            border: none;
-        }
-        .btn-primary:hover {
-            box-shadow: 0 12px 28px -4px rgba(0, 91, 181, 0.55);
-            transform: translateY(-1px);
-        }
-        .btn-primary:active { transform: translateY(0) scale(0.99); }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    /* ===== PASSWORD STRENGTH ===== */
+    .strength-bar {
+        height: 4px;
+        border-radius: 9999px;
+        background: #E2E8F0;
+        overflow: hidden;
+        flex: 1;
+    }
+    .strength-fill {
+        height: 100%;
+        border-radius: 9999px;
+        width: 0;
+        transition: width 0.4s ease, background 0.3s ease;
+    }
 
-        .btn-social {
-            width: 100%;
-            padding: 12px;
-            border-radius: 12px;
-            font-size: 13px;
-            font-weight: 600;
-            color: #374151;
-            background: white;
-            border: 1.5px solid #E2E8F0;
-            transition: all 0.25s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            cursor: pointer;
-        }
-        .btn-social:hover {
-            background: #F8FAFC;
-            border-color: #CBD5E1;
-        }
+    /* ===== TOGGLE ===== */
+    .password-toggle {
+        position: absolute;
+        right: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94A3B8;
+        font-size: 13px;
+        cursor: pointer;
+        transition: color 0.2s;
+        background: none;
+        border: none;
+    }
+    .password-toggle:hover { color: #005BB5; }
 
-        /* ===== ROLE SELECTOR ===== */
-        .role-card {
-            flex: 1;
-            padding: 14px 8px;
-            border-radius: 14px;
-            border: 2px solid #E2E8F0;
-            background: white;
-            cursor: pointer;
-            transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
-            text-align: center;
-        }
-        .role-card:hover { border-color: #CBD5E1; transform: translateY(-2px); }
-        .role-card.selected {
-            border-color: #005BB5;
-            background: linear-gradient(135deg, rgba(0, 91, 181, 0.06), rgba(0, 33, 94, 0.04));
-            box-shadow: 0 4px 16px -4px rgba(0, 91, 181, 0.25);
-        }
-        .role-card.selected .role-icon {
-            background: linear-gradient(135deg, #00215E, #005BB5);
-            color: white;
-            transform: scale(1.08);
-        }
-        .role-icon {
-            width: 44px;
-            height: 44px;
-            border-radius: 12px;
-            background: #F1F5F9;
-            color: #64748B;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 8px;
-            font-size: 17px;
-            transition: all 0.25s ease;
-        }
+    /* ===== CHECKBOX ===== */
+    .auth-checkbox {
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        border: 1.5px solid #CBD5E1;
+        cursor: pointer;
+        transition: all 0.2s;
+        accent-color: #005BB5;
+    }
 
-        /* ===== PASSWORD STRENGTH ===== */
-        .strength-bar {
-            height: 4px;
-            border-radius: 9999px;
-            background: #E2E8F0;
-            overflow: hidden;
-            flex: 1;
-        }
-        .strength-fill {
-            height: 100%;
-            border-radius: 9999px;
-            width: 0;
-            transition: width 0.4s ease, background 0.3s ease;
-        }
+    /* ===== FEATURE LIST ===== */
+    .feature-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 10px 0;
+    }
+    .feature-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 9px;
+        background: rgba(255, 255, 255, 0.12);
+        backdrop-filter: blur(4px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #F59E0B;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
 
-        /* ===== TOGGLE ===== */
-        .password-toggle {
-            position: absolute;
-            right: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #94A3B8;
-            font-size: 13px;
-            cursor: pointer;
-            transition: color 0.2s;
-            background: none;
-            border: none;
-        }
-        .password-toggle:hover { color: #005BB5; }
+    /* ===== PULSE ===== */
+    @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-10px); }
+    }
+    .float-anim { animation: float 6s ease-in-out infinite; }
 
-        /* ===== CHECKBOX ===== */
-        .auth-checkbox {
-            width: 18px;
-            height: 18px;
-            border-radius: 5px;
-            border: 1.5px solid #CBD5E1;
-            cursor: pointer;
-            transition: all 0.2s;
-            accent-color: #005BB5;
-        }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spin { animation: spin 0.9s linear infinite; }
 
-        /* ===== FEATURE LIST ===== */
-        .feature-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 10px 0;
-        }
-        .feature-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 9px;
-            background: rgba(255, 255, 255, 0.12);
-            backdrop-filter: blur(4px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #F59E0B;
-            font-size: 12px;
-            flex-shrink: 0;
-        }
+    /* ===== OTP INPUTS ===== */
+    .otp-input {
+        width: 48px;
+        height: 56px;
+        text-align: center;
+        font-size: 20px;
+        font-weight: 700;
+        color: #00215E;
+        background: #F8FAFC;
+        border: 1.5px solid #E2E8F0;
+        border-radius: 12px;
+        outline: none;
+        transition: all 0.2s ease;
+    }
+    .otp-input:focus {
+        background: white;
+        border-color: #005BB5;
+        box-shadow: 0 0 0 4px rgba(0, 91, 181, 0.12);
+    }
+    @media (max-width: 400px) {
+        .otp-input { width: 40px; height: 48px; font-size: 17px; }
+    }
 
-        /* ===== PULSE ===== */
-        @keyframes float {
-            0%, 100% { transform: translateY(0px); }
-            50% { transform: translateY(-10px); }
-        }
-        .float-anim { animation: float 6s ease-in-out infinite; }
-
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .spin { animation: spin 0.9s linear infinite; }
-
-        /* ===== OTP INPUTS ===== */
-        .otp-input {
-            width: 48px;
-            height: 56px;
-            text-align: center;
-            font-size: 20px;
-            font-weight: 700;
-            color: #00215E;
-            background: #F8FAFC;
-            border: 1.5px solid #E2E8F0;
-            border-radius: 12px;
-            outline: none;
-            transition: all 0.2s ease;
-        }
-        .otp-input:focus {
-            background: white;
-            border-color: #005BB5;
-            box-shadow: 0 0 0 4px rgba(0, 91, 181, 0.12);
-        }
-        @media (max-width: 400px) {
-            .otp-input { width: 40px; height: 48px; font-size: 17px; }
-        }
-
-        /* ===== SUCCESS CHECK ===== */
-        @keyframes checkPop {
-            0% { transform: scale(0); opacity: 0; }
-            50% { transform: scale(1.2); }
-            100% { transform: scale(1); opacity: 1; }
-        }
-        .check-pop { animation: checkPop 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) both; }
-    </style>
-</head>
-<body class="bg-[#F8FAFC] text-gray-800 antialiased overflow-hidden">
-
+    /* ===== SUCCESS CHECK ===== */
+    @keyframes checkPop {
+        0% { transform: scale(0); opacity: 0; }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    .check-pop { animation: checkPop 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) both; }
+</style>
 
 <!-- ================= SPLIT LAYOUT ================= -->
 <div class="min-h-screen flex">
@@ -324,7 +284,7 @@
         <div class="relative z-10 flex flex-col justify-between p-12 xl:p-16 w-full">
             
             <!-- Logo -->
-            <a href="/" class="flex items-center gap-3 group w-fit">
+            <a href="<?= BASE_PATH ?>" class="flex items-center gap-3 group w-fit">
                 <div class="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur-md border border-white/20 flex items-center justify-center group-hover:bg-white/25 transition-colors">
                     <i class="fas fa-home text-white text-lg"></i>
                 </div>
@@ -393,7 +353,7 @@
         
         <!-- Mobile logo -->
         <div class="lg:hidden absolute top-5 left-5">
-            <a href="/" class="flex items-center gap-2">
+            <a href="<?= BASE_PATH ?>" class="flex items-center gap-2">
                 <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-navy to-accentBlue flex items-center justify-center">
                     <i class="fas fa-home text-white text-sm"></i>
                 </div>
@@ -514,7 +474,7 @@
             <!-- Success message -->
             <div id="loginSuccess" class="hidden items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs px-3 py-2.5 rounded-lg">
                 <i class="fas fa-check-circle"></i>
-                <span>Signed in successfully! Redirecting…</span>
+                <span>Signed in successfully! Redirecting&hellip;</span>
             </div>
         </form>
 
@@ -548,8 +508,8 @@
             <p class="text-slate-400 text-xs mt-1">Join HAVENTRA in just a few seconds</p>
         </div>
 
+        <!-- Body -->
         <form onsubmit="handleRegister(event)" class="px-6 py-5">
-            
             <!-- Role selector -->
             <div class="mb-5">
                 <p class="text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-2.5">I want to join as:</p>
@@ -591,8 +551,14 @@
             </div>
 
             <div class="relative mb-3">
-                <input type="tel" id="registerPhone" class="auth-input" placeholder="Phone number (+254…)" required autocomplete="tel">
+                <input type="tel" id="registerPhone" class="auth-input" placeholder="Phone number (+254...)" required autocomplete="tel">
                 <i class="fas fa-phone input-icon"></i>
+            </div>
+
+            <!-- Company name field (shown for company/agency roles) -->
+            <div class="relative mb-3" id="companyField" style="display: none;">
+                <input type="text" id="registerCompany" class="auth-input" placeholder="Company/Agency name" autocomplete="organization">
+                <i class="fas fa-building input-icon"></i>
             </div>
 
             <div class="relative mb-2">
@@ -635,12 +601,6 @@
                 <span>Create Account</span>
                 <i class="fas fa-arrow-right text-xs"></i>
             </button>
-
-            <!-- Success -->
-            <div id="registerSuccess" class="hidden items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs px-3 py-2.5 rounded-lg mt-3">
-                <i class="fas fa-check-circle"></i>
-                <span>Account created! Check your email to verify.</span>
-            </div>
         </form>
 
         <!-- Footer -->
@@ -661,6 +621,7 @@
     <div class="auth-modal-backdrop" onclick="closeModal('forgot')"></div>
     <div class="auth-modal-panel">
         
+        <!-- Header -->
         <div class="relative px-6 pt-6 pb-5 border-b border-slate-100">
             <button onclick="closeModal('forgot')" class="absolute top-5 right-5 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
                 <i class="fas fa-times text-sm"></i>
@@ -669,11 +630,11 @@
                 <i class="fas fa-key text-white text-lg"></i>
             </div>
             <h3 class="font-serif text-2xl text-navy font-semibold">Forgot password?</h3>
-            <p class="text-slate-400 text-xs mt-1">No worries — we'll send you a reset code.</p>
+            <p class="text-slate-400 text-xs mt-1">No worries &mdash; we'll send you a reset code.</p>
         </div>
 
+        <!-- Body -->
         <form onsubmit="handleForgot(event)" class="px-6 py-5 space-y-4">
-            
             <div class="relative">
                 <input type="email" id="forgotEmail" class="auth-input" placeholder="Enter your email address" required autocomplete="email">
                 <i class="fas fa-envelope input-icon"></i>
@@ -706,6 +667,7 @@
     <div class="auth-modal-backdrop" onclick="closeModal('reset')"></div>
     <div class="auth-modal-panel">
         
+        <!-- Header -->
         <div class="relative px-6 pt-6 pb-5 border-b border-slate-100">
             <button onclick="closeModal('reset')" class="absolute top-5 right-5 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
                 <i class="fas fa-times text-sm"></i>
@@ -717,8 +679,8 @@
             <p class="text-slate-400 text-xs mt-1">Enter the code sent to <span id="resetEmailDisplay" class="font-semibold text-navy">your email</span></p>
         </div>
 
+        <!-- Body -->
         <form onsubmit="handleReset(event)" class="px-6 py-5 space-y-4">
-            
             <!-- OTP inputs -->
             <div>
                 <p class="text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-2 text-center">Verification Code</p>
@@ -774,56 +736,104 @@
             </div>
             <h3 id="successTitle" class="font-serif text-2xl text-navy font-semibold mb-2">Success!</h3>
             <p id="successMessage" class="text-slate-500 text-sm leading-relaxed mb-6">Your action was completed successfully.</p>
-            <button onclick="closeModal('success'); openModal('login')" class="btn-primary">
-                <i class="fas fa-sign-in-alt text-xs"></i>
-                <span>Continue to Sign In</span>
+            <button onclick="closeModal('success')" class="btn-primary">
+                <i class="fas fa-arrow-right text-xs"></i>
+                <span>Continue</span>
             </button>
         </div>
     </div>
 </div>
 
 
+<!-- ================= AUTH PAGE SCRIPTS ================= -->
 <script>
 /* ============================================================
    MODAL CONTROLLER
    ============================================================ */
-function openModal(name) {
-    const modal = document.getElementById('modal-' + name);
-    if (!modal) return;
-    modal.classList.add('active');
-    modal.setAttribute('aria-hidden', 'false');
-    document.body.style.overflow = 'hidden';
-
-    // Autofocus first input
-    setTimeout(() => {
-        const firstInput = modal.querySelector('input:not([type="checkbox"]):not([type="hidden"])');
-        if (firstInput && firstInput.offsetParent !== null) firstInput.focus();
-    }, 300);
-}
-
-function closeModal(name) {
-    const modal = document.getElementById('modal-' + name);
-    if (!modal) return;
-    modal.classList.remove('active');
-    modal.setAttribute('aria-hidden', 'true');
+function openModal(modalId) {
+    // Close all modals first
+    document.querySelectorAll('.auth-modal').forEach(m => {
+        m.classList.remove('active');
+        m.setAttribute('aria-hidden', 'true');
+    });
     
-    // Only unlock scroll if no modal is active
-    setTimeout(() => {
-        const anyActive = document.querySelector('.auth-modal.active');
-        if (!anyActive) document.body.style.overflow = '';
-    }, 300);
+    const modal = document.getElementById('modal-' + modalId);
+    if (modal) {
+        modal.classList.add('active');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.style.overflow = 'hidden';
+        
+        // Autofocus first input
+        setTimeout(() => {
+            const firstInput = modal.querySelector('input:not([type="checkbox"]):not([type="hidden"])');
+            if (firstInput && firstInput.offsetParent !== null) firstInput.focus();
+        }, 300);
+    }
 }
 
-// Close on Escape
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-        const active = document.querySelector('.auth-modal.active');
-        if (active) {
-            const name = active.id.replace('modal-', '');
-            closeModal(name);
+function closeModal(modalId) {
+    const modal = document.getElementById('modal-' + modalId);
+    if (modal) {
+        modal.classList.remove('active');
+        modal.setAttribute('aria-hidden', 'true');
+    }
+    
+    // If all modals closed, restore body scroll
+    const anyActive = document.querySelector('.auth-modal.active');
+    if (!anyActive) {
+        document.body.style.overflow = '';
+    }
+    
+    // Reset forms on close
+    if (modalId === 'login' || modalId === 'register' || modalId === 'forgot' || modalId === 'reset') {
+        const form = modal?.querySelector('form');
+        if (form) form.reset();
+        
+        // Reset register role selector
+        if (modalId === 'register') {
+            document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
+            document.querySelector('[data-role="client"]').classList.add('selected');
+            document.getElementById('registerRole').value = 'client';
+            document.getElementById('companyField').style.display = 'none';
+            document.getElementById('registerCompany').required = false;
+            
+            // Reset password strength
+            const fill = document.getElementById('strengthFill');
+            const label = document.getElementById('strengthLabel');
+            if (fill) { fill.style.width = '0%'; label.textContent = 'Weak'; label.className = 'text-[9px] font-bold text-slate-400 w-14 text-right'; }
+            ['reqLength','reqUpper','reqNumber'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) { el.innerHTML = '<i class="fas fa-circle text-[5px]"></i> ' + el.textContent.trim().replace(/^./, ''); el.classList.remove('text-emerald-600'); }
+            });
+        }
+        
+        // Reset OTP inputs
+        if (modalId === 'reset') {
+            document.querySelectorAll('#otpContainer .otp-input').forEach(inp => inp.value = '');
+            document.getElementById('resendTimer').classList.add('hidden');
+            const btn = document.querySelector('#modal-reset button[onclick="resendCode()"]');
+            if (btn) btn.style.display = 'inline';
         }
     }
-});
+}
+
+/* ============================================================
+   ROLE SELECTOR
+   ============================================================ */
+function selectRole(el, role) {
+    document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('registerRole').value = role;
+
+    const companyField = document.getElementById('companyField');
+    if (role === 'company') {
+        companyField.style.display = 'block';
+        document.getElementById('registerCompany').required = true;
+    } else {
+        companyField.style.display = 'none';
+        document.getElementById('registerCompany').required = false;
+    }
+}
 
 /* ============================================================
    PASSWORD TOGGLE
@@ -843,15 +853,6 @@ function togglePassword(inputId, btn) {
 }
 
 /* ============================================================
-   ROLE SELECTOR
-   ============================================================ */
-function selectRole(el, role) {
-    document.querySelectorAll('.role-card').forEach(c => c.classList.remove('selected'));
-    el.classList.add('selected');
-    document.getElementById('registerRole').value = role;
-}
-
-/* ============================================================
    PASSWORD STRENGTH
    ============================================================ */
 function checkPasswordStrength(password) {
@@ -863,7 +864,6 @@ function checkPasswordStrength(password) {
 
     let score = 0;
 
-    // Requirements
     if (password.length >= 8) {
         score++;
         reqLength.innerHTML = '<i class="fas fa-check-circle text-emerald-500 text-[8px]"></i> At least 8 characters';
@@ -891,7 +891,6 @@ function checkPasswordStrength(password) {
         reqNumber.classList.remove('text-emerald-600');
     }
 
-    // Update bar
     if (password.length === 0) {
         fill.style.width = '0%';
         label.textContent = 'Weak';
@@ -915,166 +914,252 @@ function checkPasswordStrength(password) {
 }
 
 /* ============================================================
-   HANDLERS
+   AUTH HANDLERS
    ============================================================ */
-function handleLogin(e) {
+async function handleLogin(e) {
     e.preventDefault();
     const btn = document.getElementById('loginBtn');
     const original = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Signing in…</span>';
+    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Signing in&hellip;</span>';
     btn.disabled = true;
 
-    setTimeout(() => {
+    const formData = new FormData();
+    formData.append('action', 'login');
+    formData.append('email', document.getElementById('loginEmail').value);
+    formData.append('password', document.getElementById('loginPassword').value);
+    formData.append('remember', document.querySelector('#modal-login .auth-checkbox').checked ? '1' : '0');
+
+    try {
+        const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
         btn.innerHTML = original;
         btn.disabled = false;
 
-        const success = document.getElementById('loginSuccess');
-        success.classList.remove('hidden');
-        success.classList.add('flex');
-
-        setTimeout(() => {
-            closeModal('login');
-            success.classList.add('hidden');
-            success.classList.remove('flex');
-            showSuccess('Welcome back!', 'You have been signed in successfully. Redirecting to your dashboard…');
+        if (data.success) {
+            document.getElementById('loginSuccess').classList.remove('hidden');
+            document.getElementById('loginSuccess').classList.add('flex');
+            
             setTimeout(() => {
-                closeModal('success');
-                // window.location.href = '/dashboard.html';
-            }, 1800);
-        }, 1200);
-    }, 1400);
+                closeModal('login');
+                if (data.user && data.user.first_login) {
+                    // First login ever - redirect to profile with welcome
+                    window.location.href = '<?= BASE_PATH ?>?page=profiles&welcome=1';
+                } else {
+                    // Returning user - reload current page to update nav
+                    window.location.reload();
+                }
+            }, 1500);
+        } else {
+            showToast(data.message || 'Login failed', 'error');
+        }
+    } catch (err) {
+        btn.innerHTML = original;
+        btn.disabled = false;
+        showToast('Network error. Please try again.', 'error');
+    }
 }
 
-function handleRegister(e) {
+async function handleRegister(e) {
     e.preventDefault();
     const pass = document.getElementById('registerPassword').value;
     const confirm = document.getElementById('registerConfirm').value;
 
     if (pass !== confirm) {
-        showError('Passwords do not match');
+        showToast('Passwords do not match', 'error');
         return;
     }
     if (pass.length < 8) {
-        showError('Password must be at least 8 characters');
+        showToast('Password must be at least 8 characters', 'error');
         return;
     }
 
     const btn = document.getElementById('registerBtn');
     const original = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Creating account…</span>';
+    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Creating account&hellip;</span>';
     btn.disabled = true;
 
-    setTimeout(() => {
+    const formData = new FormData();
+    formData.append('action', 'register');
+    formData.append('first_name', document.getElementById('registerFirstName').value);
+    formData.append('last_name', document.getElementById('registerLastName').value);
+    formData.append('email', document.getElementById('registerEmail').value);
+    formData.append('phone', document.getElementById('registerPhone').value);
+    formData.append('password', pass);
+    formData.append('confirm_password', confirm);
+    formData.append('role', document.getElementById('registerRole').value);
+    formData.append('company_name', document.getElementById('registerCompany').value);
+
+    try {
+        const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
         btn.innerHTML = original;
         btn.disabled = false;
 
-        closeModal('register');
-        showSuccess('Account created!', 'Please check your email inbox to verify your account before signing in.');
-    }, 1600);
+        if (data.success) {
+            closeModal('register');
+            showSuccess('Account created!', 'Welcome to HAVENTRA. Redirecting to your dashboard&hellip;');
+            
+            setTimeout(() => {
+                closeModal('success');
+                // New account = first login, redirect to profile
+                window.location.href = '<?= BASE_PATH ?>?page=profiles&welcome=1';
+            }, 2000);
+        } else {
+            showToast(data.message || 'Registration failed', 'error');
+        }
+    } catch (err) {
+        btn.innerHTML = original;
+        btn.disabled = false;
+        showToast('Network error. Please try again.', 'error');
+    }
 }
 
-function handleForgot(e) {
+async function handleForgot(e) {
     e.preventDefault();
     const email = document.getElementById('forgotEmail').value;
     const btn = document.getElementById('forgotBtn');
     const original = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Sending…</span>';
+    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Sending&hellip;</span>';
     btn.disabled = true;
 
-    setTimeout(() => {
+    const formData = new FormData();
+    formData.append('action', 'forgot');
+    formData.append('email', email);
+
+    try {
+        const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
         btn.innerHTML = original;
         btn.disabled = false;
 
-        // Store email for reset modal
-        document.getElementById('resetEmailDisplay').textContent = email;
-        closeModal('forgot');
-        openModal('reset');
-    }, 1400);
+        if (data.success) {
+            document.getElementById('resetEmailDisplay').textContent = email;
+            closeModal('forgot');
+            openModal('reset');
+        } else {
+            showToast(data.message || 'Failed to send reset code', 'error');
+        }
+    } catch (err) {
+        btn.innerHTML = original;
+        btn.disabled = false;
+        showToast('Network error. Please try again.', 'error');
+    }
 }
 
-function handleReset(e) {
+async function handleReset(e) {
     e.preventDefault();
     const pass = document.getElementById('resetPassword').value;
     const confirm = document.getElementById('resetConfirm').value;
 
     if (pass !== confirm) {
-        showError('Passwords do not match');
+        showToast('Passwords do not match', 'error');
         return;
     }
     if (pass.length < 8) {
-        showError('Password must be at least 8 characters');
+        showToast('Password must be at least 8 characters', 'error');
         return;
     }
 
     // Check OTP filled
-    const otpInputs = document.querySelectorAll('.otp-input');
+    const otpInputs = document.querySelectorAll('#otpContainer .otp-input');
     let otp = '';
     otpInputs.forEach(inp => otp += inp.value);
     if (otp.length !== 6) {
-        showError('Please enter the 6-digit verification code');
+        showToast('Please enter the 6-digit verification code', 'error');
         return;
     }
 
     const btn = document.getElementById('resetBtn');
     const original = btn.innerHTML;
-    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Resetting…</span>';
+    btn.innerHTML = '<i class="fas fa-circle-notch spin"></i><span>Resetting&hellip;</span>';
     btn.disabled = true;
 
-    setTimeout(() => {
+    const formData = new FormData();
+    formData.append('action', 'reset');
+    formData.append('otp', otp);
+    formData.append('password', pass);
+    formData.append('confirm_password', confirm);
+    formData.append('email', document.getElementById('resetEmailDisplay').textContent);
+
+    try {
+        const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+
         btn.innerHTML = original;
         btn.disabled = false;
 
-        closeModal('reset');
-        showSuccess('Password reset!', 'Your password has been reset successfully. You can now sign in with your new password.');
-    }, 1500);
+        if (data.success) {
+            closeModal('reset');
+            showSuccess('Password reset!', 'Your password has been reset successfully. You can now sign in with your new password.');
+        } else {
+            showToast(data.message || 'Password reset failed', 'error');
+        }
+    } catch (err) {
+        btn.innerHTML = original;
+        btn.disabled = false;
+        showToast('Network error. Please try again.', 'error');
+    }
 }
 
+/* ============================================================
+   SUCCESS MODAL
+   ============================================================ */
 function showSuccess(title, message) {
     document.getElementById('successTitle').textContent = title;
     document.getElementById('successMessage').textContent = message;
     openModal('success');
 }
 
-function showError(message) {
-    // Simple inline error - could be enhanced
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'fixed top-5 left-1/2 -translate-x-1/2 bg-red-500 text-white text-xs font-semibold px-5 py-3 rounded-xl shadow-2xl z-[2000] flex items-center gap-2';
-    errorDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${message}`;
-    document.body.appendChild(errorDiv);
+/* ============================================================
+   TOAST NOTIFICATIONS
+   ============================================================ */
+function showToast(message, type = 'error') {
+    const bgColor = type === 'error' ? 'bg-red-500' : 'bg-emerald-500';
+    const icon = type === 'error' ? 'fa-exclamation-circle' : 'fa-check-circle';
+    
+    const toast = document.createElement('div');
+    toast.className = 'fixed top-5 left-1/2 -translate-x-1/2 ' + bgColor + ' text-white text-xs font-semibold px-5 py-3 rounded-xl shadow-2xl z-[2000] flex items-center gap-2';
+    toast.innerHTML = '<i class="fas ' + icon + '"></i> ' + message;
+    document.body.appendChild(toast);
     setTimeout(() => {
-        errorDiv.style.opacity = '0';
-        errorDiv.style.transition = 'opacity 0.3s';
-        setTimeout(() => errorDiv.remove(), 300);
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
     }, 3000);
-}
-
-function socialLogin(provider) {
-    showSuccess('Connecting…', `Redirecting to ${provider} for authentication. In production, this would open the OAuth flow.`);
-    setTimeout(() => closeModal('success'), 2500);
 }
 
 /* ============================================================
    OTP INPUT HANDLING
    ============================================================ */
-const otpInputs = document.querySelectorAll('.otp-input');
+const otpInputs = document.querySelectorAll('#otpContainer .otp-input');
 
 otpInputs.forEach((input, index) => {
     input.addEventListener('input', function(e) {
-        // Only allow digits
         this.value = this.value.replace(/[^0-9]/g, '');
-
-        // Auto-advance
         if (this.value && index < otpInputs.length - 1) {
             otpInputs[index + 1].focus();
         }
     });
 
     input.addEventListener('keydown', function(e) {
-        // Backspace to go back
         if (e.key === 'Backspace' && !this.value && index > 0) {
             otpInputs[index - 1].focus();
         }
-        // Arrow keys
         if (e.key === 'ArrowLeft' && index > 0) otpInputs[index - 1].focus();
         if (e.key === 'ArrowRight' && index < otpInputs.length - 1) otpInputs[index + 1].focus();
     });
@@ -1129,16 +1214,33 @@ function resendCode() {
 }
 
 /* ============================================================
-   URL PARAM TO OPEN MODAL DIRECTLY
+   SOCIAL LOGIN (placeholder)
+   ============================================================ */
+function socialLogin(provider) {
+    showToast('Connecting to ' + provider + '&hellip; In production, this would open the OAuth flow.', 'info');
+    setTimeout(() => closeModal('success'), 2500);
+}
+
+/* ============================================================
+   AUTO-OPEN MODAL BASED ON URL PARAMETER
    ============================================================ */
 document.addEventListener('DOMContentLoaded', function() {
-    const params = new URLSearchParams(window.location.search);
-    const mode = params.get('mode');
-    if (mode && ['login', 'register', 'forgot', 'reset'].includes(mode)) {
-        setTimeout(() => openModal(mode), 300);
+    const urlParams = new URLSearchParams(window.location.search);
+    const page = urlParams.get('page');
+    if (page === 'login') {
+        openModal('login');
+    } else if (page === 'register') {
+        openModal('register');
     }
+    
+    // Close on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.auth-modal.active').forEach(m => {
+                const id = m.id.replace('modal-', '');
+                closeModal(id);
+            });
+        }
+    });
 });
 </script>
-
-</body>
-</html>

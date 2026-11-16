@@ -1,7 +1,7 @@
 <?php
 // includes/db.php - Reusable PDO database connection
 if (!defined('APP_PATH')) {
-    die('Direct access not allowed');
+    define('APP_PATH', dirname(__DIR__) . '/');
 }
 
 try {

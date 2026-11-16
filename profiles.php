@@ -62,6 +62,26 @@ try { $pdo->exec("CREATE TABLE IF NOT EXISTS user_profiles (
   KEY idx_user_profiles_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch(Throwable $e){}
 
+try { $pdo->exec("CREATE TABLE IF NOT EXISTS company_projects (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NULL,
+  owner_email VARCHAR(190) NULL,
+  company_name VARCHAR(190) NULL,
+  title VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  location VARCHAR(190) NULL,
+  location_description TEXT NULL,
+  project_type VARCHAR(40) NULL,
+  start_date DATE NULL,
+  end_date DATE NULL,
+  image_urls JSON NULL,
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_company_projects_user_id (user_id),
+  KEY idx_company_projects_owner_email (owner_email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch(Throwable $e){}
+
 foreach ([['properties','user_id',"ALTER TABLE properties ADD COLUMN user_id INT NULL"],
           ['properties','owner_email',"ALTER TABLE properties ADD COLUMN owner_email VARCHAR(190) NULL"],
           ['properties','parking',"ALTER TABLE properties ADD COLUMN parking INT NULL"],
@@ -71,6 +91,7 @@ foreach ([['properties','user_id',"ALTER TABLE properties ADD COLUMN user_id INT
           ['properties','agent_name',"ALTER TABLE properties ADD COLUMN agent_name VARCHAR(190) NULL"],
           ['properties','agent_initial',"ALTER TABLE properties ADD COLUMN agent_initial VARCHAR(10) NULL"],
           ['properties','video_url',"ALTER TABLE properties ADD COLUMN video_url VARCHAR(255) NULL"],
+          ['properties','location_description',"ALTER TABLE properties ADD COLUMN location_description TEXT NULL"],
           ['agencies','user_id',"ALTER TABLE agencies ADD COLUMN user_id INT NULL"],
           ['agencies','owner_email',"ALTER TABLE agencies ADD COLUMN owner_email VARCHAR(190) NULL"]] as $a) {
   try { if(table_exists($pdo,$a[0]) && !column_exists($pdo,$a[0],$a[1])) $pdo->exec($a[2]); } catch(Throwable $e){}
@@ -107,16 +128,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $phone = post('phone'); $location = post('location'); $bio = post('bio'); $rolep = post('account_role',$role); $company = post('company_name');
       if ($email==='') $email = $session_email ?: null;
       $existing = null;
-      if ($user_id>0) { $s=$pdo->prepare("SELECT id FROM user_profiles WHERE user_id=? LIMIT 1"); $s->execute([$user_id]); $existing=$s->fetchColumn(); }
-      if (!$existing && $email) { $s=$pdo->prepare("SELECT id FROM user_profiles WHERE email=? LIMIT 1"); $s->execute([$email]); $existing=$s->fetchColumn(); }
+      $existingAvatar = '';
+      if ($user_id>0) {
+        $s=$pdo->prepare("SELECT id, avatar_url FROM user_profiles WHERE user_id=? LIMIT 1"); $s->execute([$user_id]); $r=$s->fetch();
+        if ($r) { $existing=(int)$r['id']; $existingAvatar=(string)($r['avatar_url']??''); }
+      }
+      if (!$existing && $email) {
+        $s=$pdo->prepare("SELECT id, avatar_url FROM user_profiles WHERE email=? LIMIT 1"); $s->execute([$email]); $r=$s->fetch();
+        if ($r) { $existing=(int)$r['id']; $existingAvatar=(string)($r['avatar_url']??''); }
+      }
+      $avatarUrl = post('existing_avatar', $existingAvatar);
+      $uploadDirAbs = APP_PATH . 'uploads/profiles';
+      $uploadDirWeb = rtrim(BASE_PATH,'/') . '/uploads/profiles';
+      try {
+        $u = save_upload('avatar_file', $uploadDirAbs, $uploadDirWeb, ['jpg','jpeg','png','webp','gif','svg'], 5*1024*1024);
+        if ($u) $avatarUrl = $u;
+      } catch (Throwable $ue) { /* keep existing avatar if upload fails */ }
       if ($existing) {
-        $s=$pdo->prepare("UPDATE user_profiles SET user_id=?,email=?,full_name=?,phone=?,location=?,bio=?,account_role=?,company_name=? WHERE id=?");
-        $s->execute([$user_id?:null,$email,$name,$phone,$location,$bio,$rolep,$company,$existing]);
+        $s=$pdo->prepare("UPDATE user_profiles SET user_id=?,email=?,full_name=?,phone=?,location=?,bio=?,avatar_url=?,account_role=?,company_name=? WHERE id=?");
+        $s->execute([$user_id?:null,$email,$name,$phone,$location,$bio,$avatarUrl,$rolep,$company,$existing]);
       } else {
-        $s=$pdo->prepare("INSERT INTO user_profiles (user_id,email,full_name,phone,location,bio,account_role,company_name) VALUES (?,?,?,?,?,?,?,?)");
-        $s->execute([$user_id?:null,$email,$name,$phone,$location,$bio,$rolep,$company]);
+        $s=$pdo->prepare("INSERT INTO user_profiles (user_id,email,full_name,phone,location,bio,avatar_url,account_role,company_name) VALUES (?,?,?,?,?,?,?,?,?)");
+        $s->execute([$user_id?:null,$email,$name,$phone,$location,$bio,$avatarUrl,$rolep,$company]);
       }
       $_SESSION['name']=$name; $_SESSION['email']=$email; $_SESSION['role']=$rolep;
+      if ($avatarUrl) $_SESSION['avatar_url'] = $avatarUrl;
       flash_set('ok','Profile saved to database.');
       redir_self('tab=profile');
     }
@@ -133,9 +169,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       }
       if (!$pc) { try { foreach($pdo->query("SHOW COLUMNS FROM properties") as $r){ $pc[]=$r['Field']; } } catch(Throwable $e){} }
       $id = (int)post('id');
+      [$ow,$op] = owner_where_clause($pc,$user_id,$session_email);
       if ($action === 'delete_property') {
-        if ($id>0 && in_array('id',$pc,true)) { $pdo->prepare("DELETE FROM properties WHERE id=?")->execute([$id]); flash_set('ok','Property deleted.'); }
-        else { flash_set('err','Could not delete property: invalid record.'); }
+        if ($id>0 && in_array('id',$pc,true) && $ow) {
+          $s=$pdo->prepare("DELETE FROM properties WHERE id=? AND (".implode(' OR ',$ow).")");
+          $s->execute(array_merge([$id], $op));
+          flash_set($s->rowCount()>0?'ok':'err', $s->rowCount()>0?'Property deleted.':'Property not found or access denied.');
+        } else { flash_set('err','Could not delete property: invalid record or not logged in.'); }
         redir_self('tab=properties');
       }
       $uploadDirAbs = APP_PATH . 'uploads/properties';
@@ -177,9 +217,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $savedCols = count($data);
       try {
         if ($id>0) {
+          if(!$ow){ flash_set('err','You must be logged in to update properties.'); redir_self('tab=properties'); }
           $sets=[]; $vals=[]; foreach($data as $k=>$v){ $sets[]="`$k`=?"; $vals[]=$v; } $vals[]=$id;
-          $ok = $pdo->prepare("UPDATE properties SET ".implode(',',$sets)." WHERE id=?")->execute($vals);
-          flash_set($ok?'ok':'err', $ok?('Property updated (ID '.$id.', '.$savedCols.' fields saved).'):'Property update failed.');
+          $sqlu = "UPDATE properties SET ".implode(',',$sets)." WHERE id=? AND (".implode(' OR ',$ow).")";
+          $st = $pdo->prepare($sqlu); $ok = $st->execute(array_merge($vals,$op));
+          $ok = $ok && $st->rowCount()>=0;
+          flash_set($st->rowCount()>0?'ok':'err', $st->rowCount()>0?('Property updated (ID '.$id.', '.$savedCols.' fields saved).'):'Property not found or access denied.');
         } else {
           $keys=array_keys($data); $vals=array_values($data);
           $ok = $pdo->prepare("INSERT INTO properties (`".implode('`,`',$keys)."`) VALUES (".implode(',',array_fill(0,count($keys),'?')).")")->execute($vals);
@@ -197,8 +240,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (($action === 'save_agency' || $action === 'delete_agency') && table_exists($pdo,'agencies')) {
       $ac = cols($pdo,'agencies');
       $id = (int)post('id');
+      [$ow,$op] = owner_where_clause($ac,$user_id,$session_email);
       if ($action === 'delete_agency') {
-        if ($id>0) { $pdo->prepare("DELETE FROM agencies WHERE id=?")->execute([$id]); flash_set('ok','Agency/company deleted.'); }
+        if ($id>0 && $ow) {
+          $s=$pdo->prepare("DELETE FROM agencies WHERE id=? AND (".implode(' OR ',$ow).")"); $s->execute(array_merge([$id],$op));
+          flash_set($s->rowCount()>0?'ok':'err', $s->rowCount()>0?'Agency/company deleted.':'Agency/company not found or access denied.');
+        } else { flash_set('err','Could not delete agency/company: invalid record or not logged in.'); }
         redir_self('tab=agencies');
       }
       $logoUrl = post('logo');
@@ -222,15 +269,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       ];
       $data = array_intersect_key($data, array_flip($ac));
       if ($id>0) {
-        $sets=[]; $vals=[]; foreach($data as $k=>$v){ $sets[]="`$k`=?"; $vals[]=$v; } $vals[]=$id;
-        $pdo->prepare("UPDATE agencies SET ".implode(',',$sets)." WHERE id=?")->execute($vals);
-        flash_set('ok','Agency/company updated.');
+        if(!$ow){ flash_set('err','You must be logged in to update agencies/companies.'); redir_self('tab=agencies'); }
+        $sets=[]; $vals=[]; foreach($data as $k=>$v){ $sets[]="`$k`=?"; $vals[]=$v; }
+        $st=$pdo->prepare("UPDATE agencies SET ".implode(',',$sets)." WHERE id=? AND (".implode(' OR ',$ow).")");
+        $st->execute(array_merge($vals,[$id],$op));
+        flash_set($st->rowCount()>0?'ok':'err', $st->rowCount()>0?'Agency/company updated.':'Agency/company not found or access denied.');
       } else {
         $keys=array_keys($data); $vals=array_values($data);
         $pdo->prepare("INSERT INTO agencies (`".implode('`,`',$keys)."`) VALUES (".implode(',',array_fill(0,count($keys),'?')).")")->execute($vals);
         flash_set('ok','Agency/company saved to database.');
       }
       redir_self('tab=agencies');
+    }
+
+    if (($action === 'save_project' || $action === 'delete_project') && table_exists($pdo,'company_projects')) {
+      $pc = cols($pdo,'company_projects');
+      $id = (int)post('id');
+      [$ow,$op] = owner_where_clause($pc,$user_id,$session_email);
+      if ($action === 'delete_project') {
+        if ($id>0 && $ow) {
+          $s=$pdo->prepare("DELETE FROM company_projects WHERE id=? AND (".implode(' OR ',$ow).")"); $s->execute(array_merge([$id],$op));
+          flash_set($s->rowCount()>0?'ok':'err', $s->rowCount()>0?'Project deleted.':'Project not found or access denied.');
+        } else { flash_set('err','Could not delete project: invalid record or not logged in.'); }
+        redir_self('tab=projects');
+      }
+      $uploadDirAbs = APP_PATH . 'uploads/projects';
+      $uploadDirWeb = rtrim(BASE_PATH,'/') . '/uploads/projects';
+      $uploadedImages = [];
+      for ($i=1; $i<=6; $i++) {
+        $u = save_upload('photo'.$i, $uploadDirAbs, $uploadDirWeb, ['jpg','jpeg','png','webp','gif'], 5*1024*1024);
+        if ($u) $uploadedImages[] = $u;
+      }
+      $imgText = jarr(post('image_urls'));
+      $kept = isset($_POST['keep_images']) && is_array($_POST['keep_images']) ? array_values(array_filter(array_map('strval', $_POST['keep_images']))) : [];
+      $allImages = array_values(array_unique(array_filter(array_merge($kept, $uploadedImages, $imgText))));
+      if (count($allImages) > 6) $allImages = array_slice($allImages, 0, 6);
+      $data = [
+        'title'=>post('title'),
+        'description'=>post('description'),
+        'location'=>post('location'),
+        'location_description'=>post('location_description'),
+        'project_type'=>post('project_type'),
+        'start_date'=>post('start_date') ?: null,
+        'end_date'=>post('end_date') ?: null,
+        'image_urls'=>jenc($allImages),
+        'is_active'=>post('is_active','1')==='1'?1:0,
+        'company_name'=>post('company_name'),
+        'user_id'=>$user_id?:null,
+        'owner_email'=>$session_email?:null,
+      ];
+      $data = array_intersect_key($data, array_flip($pc));
+      if (empty($data)) { flash_set('err','Project could not be saved: no matching database columns found in `company_projects`.'); redir_self('tab=projects'); }
+      $savedCols = count($data);
+      try {
+        if ($id>0) {
+          if(!$ow){ flash_set('err','You must be logged in to update projects.'); redir_self('tab=projects'); }
+          $sets=[]; $vals=[]; foreach($data as $k=>$v){ $sets[]="`$k`=?"; $vals[]=$v; }
+          $st = $pdo->prepare("UPDATE company_projects SET ".implode(',',$sets)." WHERE id=? AND (".implode(' OR ',$ow).")");
+          $ok = $st->execute(array_merge($vals,[$id],$op));
+          flash_set($st->rowCount()>0?'ok':'err', $st->rowCount()>0?('Project updated (ID '.$id.', '.$savedCols.' fields saved).'):'Project not found or access denied.');
+        } else {
+          $keys=array_keys($data); $vals=array_values($data);
+          $ok = $pdo->prepare("INSERT INTO company_projects (`".implode('`,`',$keys)."`) VALUES (".implode(',',array_fill(0,count($keys),'?')).")")->execute($vals);
+          $newId = $ok ? (int)$pdo->lastInsertId() : 0;
+          flash_set($ok?'ok':'err', $ok?('Project saved (ID '.$newId.', '.$savedCols.' fields saved).'):'Project save failed.');
+        }
+      } catch (Throwable $se) {
+        $detail = $se->getMessage();
+        if ($se instanceof PDOException && !empty($se->errorInfo[2])) $detail .= ' | '.$se->errorInfo[2];
+        flash_set('err', 'Project save failed: '.$detail.' (columns: '.implode(',', array_keys($data)).')');
+      }
+      redir_self('tab=projects');
     }
   } catch(Throwable $e) {
     $tab = post('tab', (strpos(post('action',''),'property')!==false ? 'properties' : (strpos(post('action',''),'agency')!==false ? 'agencies' : 'overview')));
@@ -246,7 +355,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // --- Load data ---
-$profile = ['full_name'=>$session_name,'email'=>$session_email,'phone'=>'','location'=>'','bio'=>'','account_role'=>$role,'company_name'=>''];
+$profile = ['full_name'=>$session_name,'email'=>$session_email,'phone'=>'','location'=>'','bio'=>'','avatar_url'=>'','account_role'=>$role,'company_name'=>''];
 try {
   if (table_exists($pdo,'user_profiles')) {
     if ($user_id>0) { $s=$pdo->prepare("SELECT * FROM user_profiles WHERE user_id=? ORDER BY id DESC LIMIT 1"); $s->execute([$user_id]); $r=$s->fetch(); if($r) $profile=array_merge($profile,$r); }
@@ -256,25 +365,76 @@ try {
 $display_name = $profile['full_name'] ?: $session_name;
 $display_email = $profile['email'] ?: $session_email;
 $display_role = $profile['account_role'] ?: $role;
+$display_avatar = trim((string)($profile['avatar_url'] ?? ''));
 $initials = strtoupper(substr(preg_replace('/\s+/', ' ', trim($display_name)),0,1) . (preg_match('/\s(\S)/',$display_name,$m)?$m[1]:''));
 if(strlen($initials)<2) $initials = strtoupper(substr($display_name,0,2) ?: 'GU');
 
-$properties=[]; $agencies=[]; $propTotal=0;
+$properties=[]; $agencies=[]; $projects=[];
+function owner_where_clause($colsList, $user_id, $email){
+  $w=[]; $p=[];
+  if($user_id>0 && in_array('user_id',$colsList,true)){ $w[]='user_id=?'; $p[]=$user_id; }
+  if($email && in_array('owner_email',$colsList,true)){ $w[]='owner_email=?'; $p[]=$email; }
+  return [$w,$p];
+}
+$is_logged_in = ($user_id > 0 || !empty($display_email));
 if (!($pdo instanceof PDO)) { $flash = $flash ?: ['type'=>'err','msg'=>'Database connection failed. Start MySQL in XAMPP and confirm `haventra` database credentials.']; }
 else try { if(table_exists($pdo,'properties')) {
   $pc=cols($pdo,'properties');
-  try { $propTotal = (int)$pdo->query("SELECT COUNT(*) FROM properties")->fetchColumn(); } catch(Throwable $e){}
-  $w=[];$p=[]; if($user_id>0 && in_array('user_id',$pc,true)){ $w[]='user_id=?'; $p[]=$user_id; } if($display_email && in_array('owner_email',$pc,true)){ $w[]='owner_email=?'; $p[]=$display_email; }
-  $sql="SELECT * FROM properties".($w?' WHERE '.implode(' OR ',$w):'')." ORDER BY ".(in_array('id',$pc,true)?'id':'1')." DESC LIMIT 200"; $s=$pdo->prepare($sql); $s->execute($p); $properties=$s->fetchAll();
-  if(!$properties && $propTotal>0){ $s=$pdo->query("SELECT * FROM properties ORDER BY ".(in_array('id',$pc,true)?'id':'1')." DESC LIMIT 50"); $properties=$s?$s->fetchAll():[]; }
+  [$w,$p] = owner_where_clause($pc,$user_id,$display_email);
+  if($is_logged_in && $w){
+    $sql="SELECT * FROM properties WHERE ".implode(' OR ',$w)." ORDER BY ".(in_array('id',$pc,true)?'id':'1')." DESC LIMIT 200"; $s=$pdo->prepare($sql); $s->execute($p); $properties=$s->fetchAll();
+  } else {
+    $properties = [];
+  }
 } } catch(Throwable $e){ $flash = $flash ?: ['type'=>'err','msg'=>'Could not load properties: '.$e->getMessage()]; }
-try { if(table_exists($pdo,'agencies')) { $ac=cols($pdo,'agencies'); $w=[];$p=[]; if($user_id>0 && in_array('user_id',$ac,true)){ $w[]='user_id=?'; $p[]=$user_id; } if($display_email && in_array('owner_email',$ac,true)){ $w[]='owner_email=?'; $p[]=$display_email; } $sql="SELECT * FROM agencies".($w?' WHERE '.implode(' OR ',$w):'')." ORDER BY ".(in_array('id',$ac,true)?'id':'1')." DESC LIMIT 200"; $s=$pdo->prepare($sql); $s->execute($p); $agencies=$s->fetchAll(); } } catch(Throwable $e){}
+try { if(table_exists($pdo,'agencies')) {
+  $ac=cols($pdo,'agencies');
+  [$w,$p] = owner_where_clause($ac,$user_id,$display_email);
+  if($is_logged_in && $w){ $sql="SELECT * FROM agencies WHERE ".implode(' OR ',$w)." ORDER BY ".(in_array('id',$ac,true)?'id':'1')." DESC LIMIT 200"; $s=$pdo->prepare($sql); $s->execute($p); $agencies=$s->fetchAll(); }
+  else { $agencies = []; }
+} } catch(Throwable $e){}
+try { if(table_exists($pdo,'company_projects')) {
+  $pcp=cols($pdo,'company_projects');
+  [$w,$p] = owner_where_clause($pcp,$user_id,$display_email);
+  if($is_logged_in && $w){ $sql="SELECT * FROM company_projects WHERE ".implode(' OR ',$w)." ORDER BY ".(in_array('id',$pcp,true)?'id':'1')." DESC LIMIT 200"; $s=$pdo->prepare($sql); $s->execute($p); $projects=$s->fetchAll(); }
+  else { $projects = []; }
+} } catch(Throwable $e){}
 $flash = flash_get();
 $tab = preg_replace('/[^a-z]/','', $_GET['tab'] ?? 'overview') ?: 'overview';
-$edit_prop = null; $edit_ag = null;
-try { if(isset($_GET['edit_property']) && table_exists($pdo,'properties')){ $s=$pdo->prepare("SELECT * FROM properties WHERE id=? LIMIT 1"); $s->execute([(int)$_GET['edit_property']]); $edit_prop=$s->fetch() ?: null; $tab='properties'; }
-      if(isset($_GET['edit_agency']) && table_exists($pdo,'agencies')){ $s=$pdo->prepare("SELECT * FROM agencies WHERE id=? LIMIT 1"); $s->execute([(int)$_GET['edit_agency']]); $edit_ag=$s->fetch() ?: null; $tab='agencies'; } } catch(Throwable $e){}
-$propCount = count($properties); $agencyCount = count($agencies);
+$edit_prop = null; $edit_ag = null; $edit_proj = null;
+try {
+  if(isset($_GET['edit_property']) && $is_logged_in && table_exists($pdo,'properties')){
+    $pc=cols($pdo,'properties'); [$w,$p]=owner_where_clause($pc,$user_id,$display_email);
+    if($w){ $s=$pdo->prepare("SELECT * FROM properties WHERE id=? AND (".implode(' OR ',$w).") LIMIT 1"); $s->execute(array_merge([(int)$_GET['edit_property']], $p)); $edit_prop=$s->fetch() ?: null; if($edit_prop) $tab='properties'; else flash_set('err','Property not found or access denied.'); }
+  }
+  if(isset($_GET['edit_agency']) && $is_logged_in && table_exists($pdo,'agencies')){
+    $ac=cols($pdo,'agencies'); [$w,$p]=owner_where_clause($ac,$user_id,$display_email);
+    if($w){ $s=$pdo->prepare("SELECT * FROM agencies WHERE id=? AND (".implode(' OR ',$w).") LIMIT 1"); $s->execute(array_merge([(int)$_GET['edit_agency']], $p)); $edit_ag=$s->fetch() ?: null; if($edit_ag) $tab='agencies'; else flash_set('err','Agency/company not found or access denied.'); }
+  }
+  if(isset($_GET['edit_project']) && $is_logged_in && table_exists($pdo,'company_projects')){
+    $pcp=cols($pdo,'company_projects'); [$w,$p]=owner_where_clause($pcp,$user_id,$display_email);
+    if($w){ $s=$pdo->prepare("SELECT * FROM company_projects WHERE id=? AND (".implode(' OR ',$w).") LIMIT 1"); $s->execute(array_merge([(int)$_GET['edit_project']], $p)); $edit_proj=$s->fetch() ?: null; if($edit_proj) $tab='projects'; else flash_set('err','Project not found or access denied.'); }
+  }
+} catch(Throwable $e){}
+if(!$flash) $flash = flash_get();
+$propCount = count($properties); $agencyCount = count($agencies); $projectCount = count($projects);
+
+// --- Profile completion calculation ---
+function calculateProfileCompletion($profile, $display_role) {
+    $fields = [
+        'full_name' => !empty($profile['full_name']),
+        'email' => !empty($profile['email']),
+        'phone' => !empty($profile['phone']),
+        'location' => !empty($profile['location']),
+        'bio' => !empty($profile['bio']),
+        'company_name' => in_array($display_role, ['company', 'agency']) ? !empty($profile['company_name']) : true,
+    ];
+    $completed = array_sum($fields);
+    $total = count($fields);
+    return $total > 0 ? round(($completed / $total) * 100) : 0;
+}
+$profilePercent = calculateProfileCompletion($profile, $display_role);
+$showWelcome = isset($_GET['welcome']) && $_GET['welcome'] === '1';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -299,8 +459,8 @@ $propCount = count($properties); $agencyCount = count($agencies);
         .nav-link.active .nav-icon{color:#F59E0B}
         .nav-icon{font-size:14px;width:18px;text-align:center}
         .stat-card{transition:.35s}.stat-card:hover{transform:translateY(-4px);box-shadow:0 20px 30px -10px rgba(0,0,0,.1)}
-        .dash-section{display:none}.dash-section.active{display:block;animation:fadeIn .35s ease both}
-        @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+        .dash-section{display:none}.dash-section.active{display:block;animation:fadeIn .35s ease}
+        @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
         #sidebarOverlay{display:none}#sidebarOverlay.active{display:block}
         @media(max-width:1023px){#sidebar{transform:translateX(-100%);transition:transform .3s}#sidebar.open{transform:translateX(0)}}
         .role-btn{padding:6px 12px;border-radius:8px;font-size:10px;font-weight:600;text-transform:uppercase;cursor:pointer;transition:.25s}
@@ -330,9 +490,9 @@ $propCount = count($properties); $agencyCount = count($agencies);
         .input-spinner{position:absolute;right:132px;top:50%;transform:translateY(-50%);width:14px;height:14px;border:2px solid rgba(0,33,94,.15);border-top-color:#00215E;border-radius:999px;animation:spin .7s linear infinite;display:none}
         .loc-wrap.is-searching .input-spinner{display:block}
         @keyframes spin{to{transform:rotate(360deg)}}
-        .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(2,6,23,.58);backdrop-filter:blur(2px);z-index:80;align-items:flex-start;justify-content:center;padding:18px;overflow:auto}
+        .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(2,6,23,.58);backdrop-filter:blur(2px);z-index:9999;align-items:flex-start;justify-content:center;padding:18px;overflow:auto}
         .modal-backdrop.active{display:flex}
-        .modal-panel{width:100%;max-width:980px;background:#fff;border-radius:18px;border:1px solid #e2e8f0;box-shadow:0 30px 80px rgba(2,6,23,.25);margin:12px auto;max-height:90vh;overflow-y:auto}
+        .modal-panel{position:relative;z-index:1;width:100%;max-width:980px;background:#fff;border-radius:18px;border:1px solid #e2e8f0;box-shadow:0 30px 80px rgba(2,6,23,.25);margin:12px auto;max-height:90vh;overflow-y:auto}
         @media(max-width:640px){.modal-backdrop{padding:8px}.modal-panel{border-radius:14px}}
     </style>
 </head>
@@ -349,7 +509,11 @@ $propCount = count($properties); $agencyCount = count($agencies);
   </div>
   <div class="px-4 py-4 border-b border-slate-100">
     <div class="flex items-center gap-3 mb-3">
-      <div class="w-11 h-11 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-sm"><?= h($initials) ?></div>
+      <?php if($display_avatar): ?>
+        <img src="<?= h($display_avatar) ?>" alt="<?= h($display_name) ?>" class="w-11 h-11 rounded-full object-cover border border-slate-200 bg-slate-100">
+      <?php else: ?>
+        <div class="w-11 h-11 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-sm"><?= h($initials) ?></div>
+      <?php endif; ?>
       <div class="flex-1 min-w-0"><p class="text-sm font-bold text-navy truncate"><?= h($display_name) ?></p><p class="text-[10px] text-slate-400 truncate"><?= h($display_email ?: 'No email in session') ?></p></div>
     </div>
     <div class="bg-navy rounded-xl p-1 flex gap-1">
@@ -358,19 +522,20 @@ $propCount = count($properties); $agencyCount = count($agencies);
       <button onclick="switchRole('company', this)" class="role-btn <?= in_array($display_role,['company','agency'])?'active':'' ?> flex-1" data-role="company">Company</button>
     </div>
   </div>
-  <nav class="flex-1 overflow-y-auto thin-scroll px-3 py-4">
+<nav class="flex-1 overflow-y-auto thin-scroll px-3 py-4">
     <p class="text-[9px] uppercase tracking-widest font-bold text-slate-400 px-3 mb-2">Manage</p>
-    <div class="space-y-1">
-      <a onclick="showSection('overview', this)" class="nav-link <?= $tab==='overview'?'active':'' ?>"><i class="fas fa-th-large nav-icon"></i><span>Overview</span></a>
-      <a onclick="showSection('properties', this)" class="nav-link <?= $tab==='properties'?'active':'' ?>"><i class="fas fa-building nav-icon"></i><span>My Properties</span><span class="ml-auto text-[9px] bg-accentOrange/15 text-accentOrange font-bold px-1.5 py-0.5 rounded-full"><?= (int)$propCount ?></span></a>
-      <a onclick="showSection('agencies', this)" class="nav-link <?= $tab==='agencies'?'active':'' ?>"><i class="fas fa-handshake nav-icon"></i><span>My Companies/Agencies</span><span class="ml-auto text-[9px] bg-accentBlue/15 text-accentBlue font-bold px-1.5 py-0.5 rounded-full"><?= (int)$agencyCount ?></span></a>
-      <a onclick="showSection('bookings', this)" class="nav-link"><i class="fas fa-calendar-check nav-icon"></i><span>Bookings</span></a>
-      <a onclick="showSection('messages', this)" class="nav-link"><i class="fas fa-comments nav-icon"></i><span>Messages</span></a>
+    <div class="space-y-1" id="sidebarNavLinks">
+      <a onclick="showSection('overview', this)" class="nav-link <?= $tab==='overview'?'active':'' ?>" data-section="overview" data-roles="all"><i class="fas fa-th-large nav-icon"></i><span>Overview</span></a>
+      <a onclick="showSection('properties', this)" class="nav-link <?= $tab==='properties'?'active':'' ?>" data-section="properties" data-roles="owner,company,agency"><i class="fas fa-building nav-icon"></i><span>My Properties</span><span class="ml-auto text-[9px] bg-accentOrange/15 text-accentOrange font-bold px-1.5 py-0.5 rounded-full"><?= (int)$propCount ?></span></a>
+      <a onclick="showSection('agencies', this)" class="nav-link <?= $tab==='agencies'?'active':'' ?>" data-section="agencies" data-roles="company,agency"><i class="fas fa-handshake nav-icon"></i><span>My Companies/Agencies</span><span class="ml-auto text-[9px] bg-accentBlue/15 text-accentBlue font-bold px-1.5 py-0.5 rounded-full"><?= (int)$agencyCount ?></span></a>
+      <a onclick="showSection('projects', this)" class="nav-link <?= $tab==='projects'?'active':'' ?>" data-section="projects" data-roles="company,agency"><i class="fas fa-project-diagram nav-icon"></i><span>My Projects</span><span class="ml-auto text-[9px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full"><?= (int)$projectCount ?></span></a>
+      <a onclick="showSection('bookings', this)" class="nav-link <?= $tab==='bookings'?'active':'' ?>" data-section="bookings" data-roles="all"><i class="fas fa-calendar-check nav-icon"></i><span>Bookings</span></a>
+      <a onclick="showSection('messages', this)" class="nav-link <?= $tab==='messages'?'active':'' ?>" data-section="messages" data-roles="all"><i class="fas fa-comments nav-icon"></i><span>Messages</span></a>
     </div>
     <p class="text-[9px] uppercase tracking-widest font-bold text-slate-400 px-3 mt-5 mb-2">Account</p>
     <div class="space-y-1">
-      <a onclick="showSection('profile', this)" class="nav-link <?= $tab==='profile'?'active':'' ?>"><i class="fas fa-user-circle nav-icon"></i><span>Profile</span></a>
-      <a onclick="showSection('help', this)" class="nav-link"><i class="fas fa-question-circle nav-icon"></i><span>Help</span></a>
+      <a onclick="showSection('profile', this)" class="nav-link <?= $tab==='profile'?'active':'' ?>" data-section="profile" data-roles="all"><i class="fas fa-user-circle nav-icon"></i><span>Profile</span></a>
+      <a onclick="showSection('help', this)" class="nav-link <?= $tab==='help'?'active':'' ?>" data-section="help" data-roles="all"><i class="fas fa-question-circle nav-icon"></i><span>Help</span></a>
     </div>
   </nav>
   <div class="px-4 py-3 border-t border-slate-100"><a href="<?= h(BASE_PATH) ?>?page=logout" class="w-full flex items-center gap-2 text-xs text-slate-500 hover:text-red-500 font-medium transition-colors"><i class="fas fa-sign-out-alt"></i><span>Sign Out</span></a></div>
@@ -383,7 +548,7 @@ $propCount = count($properties); $agencyCount = count($agencies);
         <button onclick="openSidebar()" class="lg:hidden w-9 h-9 flex items-center justify-center rounded-lg bg-slate-100 text-slate-600"><i class="fas fa-bars text-sm"></i></button>
         <div><h1 id="pageTitle" class="font-serif text-lg md:text-xl text-navy font-semibold leading-tight">Dashboard</h1><p id="pageSubtitle" class="text-[10px] md:text-xs text-slate-400">Shared dashboard · roles separated by session later</p></div>
       </div>
-      <div class="flex items-center gap-2"><a href="<?= h(BASE_PATH) ?>" class="text-xs font-semibold text-accentBlue hover:underline">Back to site</a><div class="w-9 h-9 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-[10px]"><?= h($initials) ?></div></div>
+      <div class="flex items-center gap-2"><a href="<?= h(BASE_PATH) ?>" class="text-xs font-semibold text-accentBlue hover:underline">Back to site</a><?php if($display_avatar): ?><img src="<?= h($display_avatar) ?>" alt="<?= h($display_name) ?>" class="w-9 h-9 rounded-full object-cover border border-slate-200 bg-slate-100"><?php else: ?><div class="w-9 h-9 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-[10px]"><?= h($initials) ?></div><?php endif; ?></div>
     </div>
   </header>
   <main class="p-4 md:p-6 pb-20">
@@ -430,7 +595,7 @@ $propCount = count($properties); $agencyCount = count($agencies);
           </div>
         </div>
         <?php endforeach; ?>
-        <?php if(!$properties): ?><div class="card p-5 text-sm <?= $propTotal>0?'text-amber-700 bg-amber-50 border-amber-200':'text-slate-500' ?>">No properties found for this account context<?= $propTotal>0?(' ('.$propTotal.' total exist in `properties`; ownership/session filter may not match)').'':'' ?>. Add one below.</div><?php endif; ?>
+        <?php if(!$properties): ?><div class="card p-5 text-sm text-slate-500"><?php if($is_logged_in): ?>No properties found for your account. Add one below.<?php else: ?>Please sign in to view and manage your properties.<?php endif; ?></div><?php endif; ?>
       </div>
 
       <div id="propertyFormWrap" style="display:none"></div>
@@ -443,7 +608,7 @@ $propCount = count($properties); $agencyCount = count($agencies);
           <input type="hidden" name="lng" id="propLng" value="<?= h($edit_prop['lng']??'') ?>">
           <input type="hidden" name="existing_video_url" value="<?= h($edit_prop['video_url']??'') ?>">
           <input type="hidden" name="date_added" value="<?= h($edit_prop['date_added'] ?? date('Y-m-d')) ?>">
-          <div class="md:col-span-2"><label class="label">Title</label><input class="input" name="title" required value="<?= h($edit_prop['title']??'') ?>"></div>
+          <div class="md:col-span-2"><label class="label">Title</label><input class="input" name="title" required placeholder="e.g. Modern 2-Bedroom Apartment in Kilimani" value="<?= h($edit_prop['title']??'') ?>"></div>
 
           <div class="md:col-span-2 relative">
             <label class="label">Location / Place / Apartment</label>
@@ -456,19 +621,21 @@ $propCount = count($properties); $agencyCount = count($agencies);
             <p class="text-[10px] text-slate-400 mt-1">Select a suggestion or use your current location. The selected place name, latitude, and longitude are saved to the database.</p>
           </div>
 
-          <div><label class="label">Price</label><input class="input" name="price" value="<?= h($edit_prop['price']??'') ?>"></div>
-          <div><label class="label">Price Suffix</label><input class="input" name="price_suffix" placeholder="/month, /night" value="<?= h($edit_prop['price_suffix']??'') ?>"></div>
+          <div class="md:col-span-2"><label class="label">Location Description</label><textarea class="input" name="location_description" rows="2" placeholder="e.g. Block B, 3rd floor, near Yaya Centre"><?= h($edit_prop['location_description']??'') ?></textarea></div>
+
+          <div><label class="label">Price</label><input class="input" name="price" placeholder="e.g. 45000 or 12000000" value="<?= h($edit_prop['price']??'') ?>"></div>
+          <div><label class="label">Price Suffix</label><input class="input" name="price_suffix" placeholder="e.g. /month, /night" value="<?= h($edit_prop['price_suffix']??'') ?>"></div>
           <div><label class="label">Type</label><select class="input" name="type"><?php foreach(['rent'=>'For Rent','booking'=>'Short Stay/Booking','sale'=>'For Sale'] as $k=>$v): ?><option value="<?= $k ?>" <?= (($edit_prop['type']??'rent')===$k)?'selected':'' ?>><?= $v ?></option><?php endforeach; ?></select></div>
           <div><label class="label">Badge</label><input class="input" name="badge" placeholder="e.g. Featured, New, Premium" value="<?= h($edit_prop['badge']??'') ?>"></div>
-          <div><label class="label">Bedrooms</label><input class="input" type="number" min="0" name="beds" value="<?= h($edit_prop['beds']??'0') ?>"></div>
-          <div><label class="label">Baths</label><input class="input" type="number" min="0" name="baths" value="<?= h($edit_prop['baths']??'0') ?>"></div>
-          <div><label class="label">Parking</label><input class="input" type="number" min="0" name="parking" value="<?= h($edit_prop['parking']??'') ?>"></div>
+          <div><label class="label">Bedrooms</label><input class="input" type="number" min="0" name="beds" placeholder="e.g. 2" value="<?= h($edit_prop['beds']??'0') ?>"></div>
+          <div><label class="label">Baths</label><input class="input" type="number" min="0" name="baths" placeholder="e.g. 2" value="<?= h($edit_prop['baths']??'0') ?>"></div>
+          <div><label class="label">Parking</label><input class="input" type="number" min="0" name="parking" placeholder="e.g. 1" value="<?= h($edit_prop['parking']??'') ?>"></div>
           <input type="hidden" name="size" value="<?= h($edit_prop['size']??'') ?>">
           <div><label class="label">Furnished</label><select class="input" name="furnished"><option value="0" <?= ((int)($edit_prop['furnished']??0)===0)?'selected':'' ?>>No</option><option value="1" <?= ((int)($edit_prop['furnished']??0)===1)?'selected':'' ?>>Yes</option></select></div>
-          <div><label class="label">Rating (optional)</label><input class="input" name="rating" step="0.1" min="0" max="5" value="<?= h($edit_prop['rating']??'') ?>"></div>
-          <div><label class="label">Reviews (optional)</label><input class="input" type="number" min="0" name="reviews" value="<?= h($edit_prop['reviews']??'') ?>"></div>
-          <div><label class="label">Agent Name (optional)</label><input class="input" name="agent_name" value="<?= h($edit_prop['agent_name']??'') ?>"></div>
-          <div><label class="label">Agent Initial (optional)</label><input class="input" name="agent_initial" maxlength="10" value="<?= h($edit_prop['agent_initial']??'') ?>"></div>
+          <div><label class="label">Rating (optional)</label><input class="input" name="rating" step="0.1" min="0" max="5" placeholder="e.g. 4.5" value="<?= h($edit_prop['rating']??'') ?>"></div>
+          <div><label class="label">Reviews (optional)</label><input class="input" type="number" min="0" name="reviews" placeholder="e.g. 12" value="<?= h($edit_prop['reviews']??'') ?>"></div>
+          <div><label class="label">Agent Name (optional)</label><input class="input" name="agent_name" placeholder="e.g. Jane Doe" value="<?= h($edit_prop['agent_name']??'') ?>"></div>
+          <div><label class="label">Agent Initial (optional)</label><input class="input" name="agent_initial" maxlength="10" placeholder="e.g. JD" value="<?= h($edit_prop['agent_initial']??'') ?>"></div>
           <div><label class="label">Active Status</label><select class="input" name="is_active"><option value="1" <?= ((int)($edit_prop['is_active']??1)===1)?'selected':'' ?>>Active / Published</option><option value="0" <?= ((int)($edit_prop['is_active']??1)===0)?'selected':'' ?>>Inactive / Draft</option></select></div>
 
           <div class="md:col-span-2 border-t border-slate-100 pt-3">
@@ -481,7 +648,7 @@ $propCount = count($properties); $agencyCount = count($agencies);
           </div>
           <div class="md:col-span-2">
             <label class="label">Image URLs fallback (optional)</label>
-            <textarea class="input" name="image_urls" rows="2" placeholder="Optional: one image URL per line or comma-separated. Uploads are preferred."></textarea>
+            <textarea class="input" name="image_urls" rows="2" placeholder="e.g. https://example.com/photo1.jpg (one per line)"></textarea>
           </div>
 
           <div class="md:col-span-2 border-t border-slate-100 pt-3">
@@ -491,8 +658,8 @@ $propCount = count($properties); $agencyCount = count($agencies);
             <p class="text-[10px] text-slate-400 mt-1">Accepted: MP4/WebM/Ogg/MOV. Maximum size: 5MB.</p>
           </div>
 
-          <div class="md:col-span-2"><label class="label">Amenities (one per line or comma; saved to JSON)</label><textarea class="input" name="amenities" rows="3" placeholder="Wi-Fi, Parking, Security, Garden, Air Conditioning, Gym, Furnished, Water, Backup Generator"><?php $am=decj($edit_prop['amenities']??'[]'); echo h(implode("\n", array_map('strval',$am))); ?></textarea></div>
-          <div class="md:col-span-2"><label class="label">Description</label><textarea class="input" name="description" rows="4"><?= h($edit_prop['description']??'') ?></textarea></div>
+          <div class="md:col-span-2"><label class="label">Amenities (one per line or comma; saved to JSON)</label><textarea class="input" name="amenities" rows="3" placeholder="e.g. Wi-Fi, Parking, Security, Garden, Air Conditioning"><?php $am=decj($edit_prop['amenities']??'[]'); echo h(implode("\n", array_map('strval',$am))); ?></textarea></div>
+          <div class="md:col-span-2"><label class="label">Description</label><textarea class="input" name="description" rows="4" placeholder="e.g. Spacious apartment with modern finishes, balcony, and 24/7 security near major amenities."><?= h($edit_prop['description']??'') ?></textarea></div>
           <div class="md:col-span-2 flex gap-2 pt-1"><button class="btn-primary" type="submit"><i class="fas fa-save mr-1"></i><?= $edit_prop?'Update':'Save' ?> Property</button><button type="button" class="text-[12px] font-bold px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200" onclick="closePropertyModal()">Cancel</button></div>
         </form>
         </div>
@@ -534,17 +701,17 @@ $propCount = count($properties); $agencyCount = count($agencies);
           <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-4" id="agencyForm">
             <input type="hidden" name="action" value="save_agency"><input type="hidden" name="tab" value="agencies"><input type="hidden" name="id" value="<?= (int)($edit_ag['id']??0) ?>">
             <input type="hidden" name="existing_logo" id="agencyExistingLogo" value="<?= h($edit_ag['logo']??'') ?>">
-            <div class="md:col-span-2"><label class="label">Company/Agency Name</label><input class="input" name="name" required value="<?= h($edit_ag['name']??'') ?>"></div>
+            <div class="md:col-span-2"><label class="label">Company/Agency Name</label><input class="input" name="name" required placeholder="e.g. Haventra Properties Ltd" value="<?= h($edit_ag['name']??'') ?>"></div>
             <div><label class="label">Category (agency/management/cleaning)</label><select class="input" name="category"><?php foreach(['agency'=>'Real Estate Agency','management'=>'Property Management','cleaning'=>'Cleaning Company'] as $k=>$v): ?><option value="<?= $k ?>" <?= (($edit_ag['category']??'agency')===$k)?'selected':'' ?>><?= $v ?></option><?php endforeach; ?></select></div>
-            <div><label class="label">Category Label</label><input class="input" name="category_label" value="<?= h($edit_ag['category_label']??'') ?>"></div>
-            <div><label class="label">Location</label><input class="input" name="location" value="<?= h($edit_ag['location']??'') ?>" placeholder="Type address"></div>
-            <div><label class="label">City</label><input class="input" name="city" value="<?= h($edit_ag['city']??'') ?>"></div>
-            <div><label class="label">Rating</label><input class="input" name="rating" value="<?= h($edit_ag['rating']??'') ?>"></div>
-            <div><label class="label">Reviews</label><input class="input" type="number" name="reviews" value="<?= h($edit_ag['reviews']??'0') ?>"></div>
-            <div><label class="label">Years</label><input class="input" type="number" name="years" value="<?= h($edit_ag['years']??'0') ?>"></div>
-            <div><label class="label">Years Label</label><input class="input" name="years_label" value="<?= h($edit_ag['years_label']??'') ?>"></div>
-            <div><label class="label">Clients</label><input class="input" name="clients" value="<?= h($edit_ag['clients']??'') ?>"></div>
-            <div><label class="label">Satisfaction</label><input class="input" name="satisfaction" value="<?= h($edit_ag['satisfaction']??'') ?>"></div>
+            <div><label class="label">Category Label</label><input class="input" name="category_label" placeholder="e.g. Real Estate Agency" value="<?= h($edit_ag['category_label']??'') ?>"></div>
+            <div><label class="label">Location</label><input class="input" name="location" value="<?= h($edit_ag['location']??'') ?>" placeholder="e.g. Westlands, Nairobi"></div>
+            <div><label class="label">City</label><input class="input" name="city" placeholder="e.g. Nairobi" value="<?= h($edit_ag['city']??'') ?>"></div>
+            <div><label class="label">Rating</label><input class="input" name="rating" placeholder="e.g. 4.8" value="<?= h($edit_ag['rating']??'') ?>"></div>
+            <div><label class="label">Reviews</label><input class="input" type="number" name="reviews" placeholder="e.g. 25" value="<?= h($edit_ag['reviews']??'0') ?>"></div>
+            <div><label class="label">Years in Business</label><input class="input" type="number" name="years" placeholder="e.g. 5" value="<?= h($edit_ag['years']??'0') ?>"></div>
+            <div><label class="label">Years Label</label><input class="input" name="years_label" placeholder="e.g. 5+ years in business" value="<?= h($edit_ag['years_label']??'') ?>"></div>
+            <div><label class="label">Clients</label><input class="input" name="clients" placeholder="e.g. 200+ clients" value="<?= h($edit_ag['clients']??'') ?>"></div>
+            <div><label class="label">Satisfaction</label><input class="input" name="satisfaction" placeholder="e.g. 98%" value="<?= h($edit_ag['satisfaction']??'') ?>"></div>
 
             <div class="md:col-span-2 border-t border-slate-100 pt-3">
               <label class="label">Company Logo</label>
@@ -565,39 +732,109 @@ $propCount = count($properties); $agencyCount = count($agencies);
             <input type="hidden" name="verified" value="1">
             <input type="hidden" name="icon" value="<?= h($edit_ag['icon']??'fa-building') ?>">
             <div><label class="label">Active Status (is_active)</label><select class="input" name="is_active"><option value="1" <?= ((int)($edit_ag['is_active']??1)===1)?'selected':'' ?>>Active</option><option value="0" <?= ((int)($edit_ag['is_active']??1)===0)?'selected':'' ?>>Inactive</option></select></div>
-            <div class="md:col-span-2"><label class="label">Short Description (short_desc)</label><textarea class="input" name="short_desc" rows="2"><?= h($edit_ag['short_desc']??'') ?></textarea></div>
-            <div class="md:col-span-2"><label class="label">About</label><textarea class="input" name="about" rows="4"><?= h($edit_ag['about']??'') ?></textarea></div>
-            <div class="md:col-span-2"><label class="label">Services (one per line or comma; JSON)</label><textarea class="input" name="services" rows="3"><?php echo h(implode("\n", array_map('strval', decj($edit_ag['services']??'[]')))); ?></textarea></div>
-            <div class="md:col-span-2"><label class="label">Achievements (one per line or comma; JSON)</label><textarea class="input" name="achievements" rows="3"><?php echo h(implode("\n", array_map('strval', decj($edit_ag['achievements']??'[]')))); ?></textarea></div>
-            <div class="md:col-span-2"><label class="label">Tags (one per line or comma; JSON)</label><textarea class="input" name="tags" rows="2"><?php echo h(implode("\n", array_map('strval', decj($edit_ag['tags']??'[]')))); ?></textarea></div>
-            <div><label class="label">Phone</label><input class="input" name="phone" value="<?= h($edit_ag['phone']??'') ?>"></div>
-            <div><label class="label">Email</label><input class="input" name="email" value="<?= h($edit_ag['email']??'') ?>"></div>
-            <div><label class="label">WhatsApp</label><input class="input" name="whatsapp" value="<?= h($edit_ag['whatsapp']??'') ?>"></div>
-            <div><label class="label">Website</label><input class="input" name="website" value="<?= h($edit_ag['website']??'') ?>"></div>
+            <div class="md:col-span-2"><label class="label">Short Description (short_desc)</label><textarea class="input" name="short_desc" rows="2" placeholder="e.g. Trusted real estate agency helping clients buy, sell, and rent properties."><?= h($edit_ag['short_desc']??'') ?></textarea></div>
+            <div class="md:col-span-2"><label class="label">About</label><textarea class="input" name="about" rows="4" placeholder="e.g. We are a full-service property company with experienced agents and a focus on customer satisfaction."><?= h($edit_ag['about']??'') ?></textarea></div>
+            <div class="md:col-span-2"><label class="label">Services (one per line or comma; JSON)</label><textarea class="input" name="services" rows="3" placeholder="e.g. Property Sales&#10;Property Management&#10;Tenant Placement"><?php echo h(implode("\n", array_map('strval', decj($edit_ag['services']??'[]')))); ?></textarea></div>
+            <div class="md:col-span-2"><label class="label">Achievements (one per line or comma; JSON)</label><textarea class="input" name="achievements" rows="3" placeholder="e.g. Top Agency 2025&#10;500+ Properties Managed"><?php echo h(implode("\n", array_map('strval', decj($edit_ag['achievements']??'[]')))); ?></textarea></div>
+            <div class="md:col-span-2"><label class="label">Tags (one per line or comma; JSON)</label><textarea class="input" name="tags" rows="2" placeholder="e.g. Residential, Commercial, Luxury"><?php echo h(implode("\n", array_map('strval', decj($edit_ag['tags']??'[]')))); ?></textarea></div>
+            <div><label class="label">Phone</label><input class="input" name="phone" placeholder="e.g. +254 712 345 678" value="<?= h($edit_ag['phone']??'') ?>"></div>
+            <div><label class="label">Email</label><input class="input" type="email" name="email" placeholder="e.g. info@company.com" value="<?= h($edit_ag['email']??'') ?>"></div>
+            <div><label class="label">WhatsApp</label><input class="input" name="whatsapp" placeholder="e.g. +254712345678" value="<?= h($edit_ag['whatsapp']??'') ?>"></div>
+            <div><label class="label">Website</label><input class="input" name="website" placeholder="e.g. https://www.company.com" value="<?= h($edit_ag['website']??'') ?>"></div>
 
             <div class="md:col-span-2 flex gap-2 pt-1">
               <button class="btn-primary" type="submit"><i class="fas fa-save mr-1"></i><?= $edit_ag?'Update':'Save' ?> Company/Agency</button>
               <button type="button" class="text-[12px] font-bold px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200" onclick="closeAgencyModal()">Cancel</button>
             </div>
           </form>
+</div>
+      </div>
+    </section>
+    <section id="section-projects" class="dash-section <?= $tab==='projects'?'active':'' ?>">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        <div><h2 class="font-serif text-2xl text-navy font-semibold">My Projects</h2><p class="text-xs text-slate-400 mt-0.5">Showcase your company's best projects. Each project can have up to 6 images.</p></div>
+        <button type="button" onclick="openProjectModal()" class="btn-primary self-start"><i class="fas fa-plus mr-1"></i>Add Project</button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-5">
+        <?php foreach($projects as $p): $pjson = h(json_encode($p, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)); ?>
+        <div class="card overflow-hidden">
+          <div class="relative h-36 bg-slate-100"><?php $imgs = array_values(array_filter(decj($p['image_urls']??'[]'))); if($imgs): ?><img src="<?= h($imgs[0]) ?>" alt="" class="w-full h-full object-cover"><?php endif; ?><span class="absolute top-2 left-2 text-[9px] font-bold px-2 py-0.5 rounded-full <?= (int)($p['is_active']??1)?'bg-emerald-600 text-white':'bg-slate-500 text-white' ?>"><?= (int)($p['is_active']??1)?'Active':'Inactive' ?></span></div>
+          <div class="p-3">
+            <h3 class="font-serif text-sm text-navy font-semibold truncate"><?= h($p['title']??'Untitled') ?></h3>
+            <p class="text-[10px] text-slate-400 mt-0.5 truncate"><i class="fas fa-map-marker-alt text-[8px] mr-1"></i><?= h($p['location']??'') ?></p>
+            <?php if(!empty($p['project_type'])): ?><span class="inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-accentBlue/15 text-accentBlue"><?= h($p['project_type']) ?></span><?php endif; ?>
+            <?php if(!empty($p['start_date']) || !empty($p['end_date'])): ?><p class="text-[10px] text-slate-400 mt-1"><?= h($p['start_date']??'') ?><?= $p['start_date'] && $p['end_date'] ? ' — ' : '' ?><?= h($p['end_date']??'') ?></p><?php endif; ?>
+            <div class="flex gap-2 mt-2">
+              <button type="button" class="flex-1 text-center text-[11px] font-bold px-3 py-2 rounded-lg bg-slate-100 text-navy hover:bg-slate-200" onclick='openProjectModal(<?= $pjson ?>)'>Edit</button>
+              <form method="post" onsubmit="return confirm('Delete this project?')"><input type="hidden" name="action" value="delete_project"><input type="hidden" name="id" value="<?= (int)($p['id']??0) ?>"><button class="btn-danger" type="submit">Delete</button></form>
+            </div>
+          </div>
+        </div>
+        <?php endforeach; ?>
+        <?php if(!$projects): ?><div class="card p-5 text-sm text-slate-500">No projects found for this account context yet. Add one with the button above.</div><?php endif; ?>
+      </div>
+
+      <div id="projectModal" class="modal-backdrop <?= $edit_proj?'active':'' ?>" onclick="if(event.target===this)closeProjectModal()">
+        <div class="modal-panel p-5">
+        <div class="flex items-center justify-between gap-2 mb-4"><h3 id="projectModalTitle" class="font-serif text-lg text-navy font-semibold"><?= $edit_proj?'Edit Project':'Add Project' ?></h3><div class="flex items-center gap-2"><?php if($edit_proj): ?><a class="text-xs font-semibold text-accentBlue hover:underline" href="<?= h(BASE_PATH) ?>?page=profile&tab=projects">New project</a><?php endif; ?><button type="button" class="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200" onclick="closeProjectModal()" aria-label="Close"><i class="fas fa-times"></i></button></div></div>
+        <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-4" id="projectForm">
+          <input type="hidden" name="action" value="save_project"><input type="hidden" name="tab" value="projects"><input type="hidden" name="id" value="<?= (int)($edit_proj['id']??0) ?>">
+          <div class="md:col-span-2"><label class="label">Project Title</label><input class="input" name="title" required placeholder="e.g. Riverside Apartments Phase 1" value="<?= h($edit_proj['title']??'') ?>"></div>
+          <div class="md:col-span-2"><label class="label">Description</label><textarea class="input" name="description" rows="4" placeholder="e.g. A modern residential development featuring spacious units, parking, and landscaped gardens."><?= h($edit_proj['description']??'') ?></textarea></div>
+          <div><label class="label">Location</label><input class="input" name="location" value="<?= h($edit_proj['location']??'') ?>" placeholder="e.g. Runda, Nairobi"></div>
+          <div><label class="label">Project Type</label><input class="input" name="project_type" placeholder="e.g. Residential, Commercial, Mixed-use" value="<?= h($edit_proj['project_type']??'') ?>"></div>
+          <div><label class="label">Start Date</label><input class="input" type="date" name="start_date" value="<?= h($edit_proj['start_date']??'') ?>"></div>
+          <div><label class="label">End Date</label><input class="input" type="date" name="end_date" value="<?= h($edit_proj['end_date']??'') ?>"></div>
+          <div><label class="label">Company Name</label><input class="input" name="company_name" placeholder="e.g. Haventra Properties Ltd" value="<?= h($edit_proj['company_name']??$profile['company_name']??'') ?>"></div>
+          <div><label class="label">Active Status</label><select class="input" name="is_active"><option value="1" <?= ((int)($edit_proj['is_active']??1)===1)?'selected':'' ?>>Active / Published</option><option value="0" <?= ((int)($edit_proj['is_active']??1)===0)?'selected':'' ?>>Inactive / Draft</option></select></div>
+          <div class="md:col-span-2 border-t border-slate-100 pt-3">
+            <label class="label">Project Images (uploads, up to 6, optional)</label>
+            <div id="projExistingImages" class="flex flex-wrap gap-2 mb-2"><?php $existingImgs = array_values(array_filter(decj($edit_proj['image_urls']??'[]'))); ?><?php if($existingImgs): ?><?php foreach(array_slice($existingImgs,0,6) as $im): ?><label class="flex items-center gap-2 text-[10px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1"><input type="checkbox" name="keep_images[]" value="<?= h($im) ?>" checked><img src="<?= h($im) ?>" alt="" class="w-10 h-8 object-cover rounded"><?= h(basename((string)$im)) ?></label><?php endforeach; ?><?php endif; ?></div>
+            <p class="text-[10px] text-slate-400 mb-2">Uncheck to remove an existing image. New uploads are added; maximum 6 images total are kept.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+              <?php for($i=1;$i<=6;$i++): ?><input class="input text-xs" type="file" name="photo<?= $i ?>" accept="image/jpeg,image/png,image/webp,image/gif"><?php endfor; ?>
+            </div>
+          </div>
+          <div class="md:col-span-2">
+            <label class="label">Image URLs fallback (optional)</label>
+            <textarea class="input" name="image_urls" rows="2" placeholder="e.g. https://example.com/project1.jpg&#10;https://example.com/project2.jpg (one per line)"></textarea>
+          </div>
+          <div class="md:col-span-2 flex gap-2 pt-1"><button class="btn-primary" type="submit"><i class="fas fa-save mr-1"></i><?= $edit_proj?'Update':'Save' ?> Project</button><button type="button" class="text-[12px] font-bold px-4 py-2 rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200" onclick="closeProjectModal()">Cancel</button></div>
+        </form>
         </div>
       </div>
     </section>
-    <section id="section-bookings" class="dash-section"><div class="card p-5"><h2 class="font-serif text-2xl text-navy font-semibold">Bookings</h2><p class="text-sm text-slate-500 mt-2">Bookings data can be connected to a bookings table in a follow-up. Account management for properties and companies/agencies is DB-connected in this dashboard.</p></div></section>
-    <section id="section-messages" class="dash-section"><div class="card p-5"><h2 class="font-serif text-2xl text-navy font-semibold">Messages</h2><p class="text-sm text-slate-500 mt-2">For admin/contact messages see <a class="text-accentBlue font-semibold hover:underline" href="<?= h(BASE_PATH) ?>?page=messages">messages</a>. User inbox integration can be added with session roles.</p></div></section>
+    <section id="section-bookings" class="dash-section"><div class="card p-5"><h2 class="font-serif text-2xl text-navy font-semibold">Bookings</h2><?php if($is_logged_in): ?><p class="text-sm text-slate-500 mt-2">No bookings found for your account yet. When bookings are connected, only your bookings will appear here.</p><?php else: ?><p class="text-sm text-slate-500 mt-2">Please sign in to view your bookings.</p><?php endif; ?></div></section>
+    <section id="section-messages" class="dash-section"><div class="card p-5"><h2 class="font-serif text-2xl text-navy font-semibold">Messages</h2><?php if($is_logged_in): ?><p class="text-sm text-slate-500 mt-2">No messages for your account. Your inbox will show only messages associated with your account when messaging is connected.</p><?php else: ?><p class="text-sm text-slate-500 mt-2">Please sign in to view your messages.</p><?php endif; ?></div></section>
 
     <section id="section-profile" class="dash-section <?= $tab==='profile'?'active':'' ?>">
-      <div class="mb-4"><h2 class="font-serif text-2xl text-navy font-semibold">Profile</h2><p class="text-xs text-slate-400 mt-0.5">Manage account details in the database.</p></div>
+      <div class="mb-4"><h2 class="font-serif text-2xl text-navy font-semibold">Profile</h2><p class="text-xs text-slate-400 mt-0.5">Manage account details, profile picture/image, or logo in the database.</p></div>
       <div class="card p-5">
-        <form method="post" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input type="hidden" name="action" value="save_profile"><input type="hidden" name="tab" value="profile">
-          <div><label class="label">Full Name</label><input class="input" name="full_name" value="<?= h($profile['full_name']??'') ?>"></div>
-          <div><label class="label">Email</label><input class="input" type="email" name="email" value="<?= h($profile['email']??'') ?>"></div>
-          <div><label class="label">Phone</label><input class="input" name="phone" value="<?= h($profile['phone']??'') ?>"></div>
-          <div><label class="label">Location</label><input class="input" name="location" value="<?= h($profile['location']??'') ?>"></div>
+        <form method="post" enctype="multipart/form-data" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input type="hidden" name="action" value="save_profile"><input type="hidden" name="tab" value="profile"><input type="hidden" name="existing_avatar" value="<?= h($profile['avatar_url']??'') ?>">
+          <div class="md:col-span-2 flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+            <div class="relative w-20 h-20 shrink-0">
+              <?php $avatar = trim((string)($profile['avatar_url'] ?? '')); if ($avatar): ?>
+                <img id="profileAvatarPreview" src="<?= h($avatar) ?>" alt="Profile image" class="w-20 h-20 rounded-full object-cover border border-slate-200 bg-white">
+              <?php else: ?>
+                <div id="profileAvatarPlaceholder" class="w-20 h-20 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-xl"><?= h($initials) ?></div>
+                <img id="profileAvatarPreview" src="" alt="Profile image" class="w-20 h-20 rounded-full object-cover border border-slate-200 bg-white hidden">
+              <?php endif; ?>
+            </div>
+            <div class="flex-1 min-w-0">
+              <label class="label">Profile Picture / Image / Logo</label>
+              <input class="input" type="file" name="avatar_file" accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml" onchange="previewProfileAvatar(this)">
+              <p class="text-[10px] text-slate-400 mt-1">Upload a profile picture, image, or logo (JPG, PNG, WebP, GIF, SVG, max 5MB). Leave empty to keep the current one.</p>
+              <?php if ($avatar): ?><p class="text-[10px] text-slate-500 mt-1">Current: <a href="<?= h($avatar) ?>" target="_blank" rel="noopener" class="text-accentBlue hover:underline break-all"><?= h(basename($avatar)) ?></a></p><?php endif; ?>
+            </div>
+          </div>
+          <div><label class="label">Full Name</label><input class="input" name="full_name" placeholder="e.g. Jane Doe" value="<?= h($profile['full_name']??'') ?>"></div>
+          <div><label class="label">Email</label><input class="input" type="email" name="email" placeholder="e.g. jane@example.com" value="<?= h($profile['email']??'') ?>"></div>
+          <div><label class="label">Phone</label><input class="input" name="phone" placeholder="e.g. +254 712 345 678" value="<?= h($profile['phone']??'') ?>"></div>
+          <div><label class="label">Location</label><input class="input" name="location" placeholder="e.g. Nairobi, Kenya" value="<?= h($profile['location']??'') ?>"></div>
           <div><label class="label">Account Role (session will control later)</label><select class="input" name="account_role"><?php foreach(['client','owner','company','agency'] as $r): ?><option value="<?= $r ?>" <?= (($profile['account_role']??$display_role)===$r)?'selected':'' ?>><?= ucfirst($r) ?></option><?php endforeach; ?></select></div>
-          <div><label class="label">Company Name (if company/agency)</label><input class="input" name="company_name" value="<?= h($profile['company_name']??'') ?>"></div>
-          <div class="md:col-span-2"><label class="label">Bio</label><textarea class="input" name="bio" rows="4"><?= h($profile['bio']??'') ?></textarea></div>
+          <div><label class="label">Company Name (if company/agency)</label><input class="input" name="company_name" placeholder="e.g. Haventra Properties Ltd" value="<?= h($profile['company_name']??'') ?>"></div>
+          <div class="md:col-span-2"><label class="label">Bio</label><textarea class="input" name="bio" rows="4" placeholder="e.g. Tell us a bit about yourself, your company, or the properties/services you offer."><?= h($profile['bio']??'') ?></textarea></div>
           <div class="md:col-span-2"><button class="btn-primary" type="submit"><i class="fas fa-save mr-1"></i>Save Profile</button></div>
         </form>
       </div>
@@ -630,7 +867,35 @@ function showSection(name, navEl){
   if(window.innerWidth<1024) closeSidebar();
   try{ const url=new URL(window.location.href); url.searchParams.set('page','profile'); url.searchParams.set('tab',name); history.replaceState(null,'',url); }catch(e){}
 }
-function switchRole(role, el){ if(el) withBtnLoader(el, 'Switching', 450); document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('active')); if(el) el.classList.add('active'); showToast('UI role switched to '+role+' (session-enforced separation comes later)'); }
+function switchRole(role, el){
+  if(el) withBtnLoader(el, 'Switching', 450);
+  document.querySelectorAll('.role-btn').forEach(b=>b.classList.remove('active'));
+  if(el) el.classList.add('active');
+  window.currentDashboardRole = role;
+  applyRoleSidebar(role);
+  showToast('UI role switched to '+role);
+}
+function applyRoleSidebar(role){
+  role = role || 'client';
+  const navLinks = document.querySelectorAll('#sidebarNavLinks .nav-link[data-roles], #sidebarNavLinks ~ .space-y-1 .nav-link[data-roles], aside nav .nav-link[data-roles]');
+  // simpler: all sidebar section links
+  document.querySelectorAll('aside nav .nav-link[data-section]').forEach(link=>{
+    const allowed = (link.getAttribute('data-roles')||'all').split(',').map(s=>s.trim());
+    const show = allowed.includes('all') || allowed.includes(role);
+    link.style.display = show ? '' : 'none';
+    if(!show && link.classList.contains('active')){
+      link.classList.remove('active');
+      const ov = document.querySelector('aside nav .nav-link[data-section="overview"]');
+      if(ov){ ov.classList.add('active'); showSection('overview', ov); }
+    }
+  });
+}
+document.addEventListener('DOMContentLoaded', function(){
+  const initialRole = '<?= in_array($display_role, ["company","agency"]) ? "company" : h($display_role) ?>';
+  window.currentDashboardRole = initialRole || 'client';
+  applyRoleSidebar(window.currentDashboardRole);
+});
+
 function showToast(msg){ const e=document.createElement('div'); e.className='fixed bottom-6 left-1/2 -translate-x-1/2 bg-navy text-white text-xs font-semibold px-4 py-2 rounded-xl shadow-xl z-[5000]'; e.textContent=msg; document.body.appendChild(e); setTimeout(()=>e.remove(),2200); }
 (function(){ const f=document.getElementById('dashFlash'); if(f){ try{ f.scrollIntoView({behavior:'smooth',block:'start'}); }catch(e){} showToast(f.innerText||'Done'); } })();
 document.addEventListener('click', function(e){
@@ -663,7 +928,7 @@ function openPropertyModal(p){
   const form = document.getElementById('propertyForm');
   if(p && form){
     form.querySelector('[name="id"]').value = p.id || '';
-    ['title','location','price','price_suffix','badge','beds','baths','parking','furnished','date_added','rating','reviews','agent_name','agent_initial','is_active','type','description','lat','lng','size','existing_video_url'].forEach(k=>{ const el=form.querySelector('[name="'+k+'"]'); if(el && p[k]!==undefined && p[k]!==null) el.value = String(p[k]); });
+    ['title','location','location_description','price','price_suffix','badge','beds','baths','parking','furnished','date_added','rating','reviews','agent_name','agent_initial','is_active','type','description','lat','lng','size','existing_video_url'].forEach(k=>{ const el=form.querySelector('[name="'+k+'"]'); if(el && p[k]!==undefined && p[k]!==null) el.value = String(p[k]); });
     if(form.querySelector('[name="amenities"]')) form.querySelector('[name="amenities"]').value = arrText(p.amenities);
     const imgs = arrVals(p.image_urls); if(!imgs.length && p.image_url) imgs.push(String(p.image_url));
     const keep = document.getElementById('propExistingImages');
@@ -746,6 +1011,41 @@ document.addEventListener('DOMContentLoaded', function(){
   try{ openAgencyModal(<?= json_encode($edit_ag, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>); }catch(e){}
 });
 <?php endif; ?>
+<?php if($edit_proj): ?>
+document.addEventListener('DOMContentLoaded', function(){
+  try{ openProjectModal(<?= json_encode($edit_proj, JSON_UNESCAPED_UNICODE|JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>); }catch(e){}
+});
+<?php endif; ?>
+
+function resetProjectForm(){
+  const form = document.getElementById('projectForm'); if(!form) return;
+  form.reset();
+  form.querySelector('[name="id"]').value='';
+  const keep = document.getElementById('projExistingImages'); if(keep) keep.innerHTML='';
+  const title = document.getElementById('projectModalTitle'); if(title) title.textContent='Add Project';
+  const btn = form.querySelector('button[type="submit"]'); if(btn) btn.innerHTML='<i class="fas fa-save mr-1"></i>Save Project';
+}
+function openProjectModal(p){
+  resetProjectForm();
+  const form = document.getElementById('projectForm');
+  if(p && form){
+    form.querySelector('[name="id"]').value = p.id || '';
+    ['title','description','location','project_type','start_date','end_date','company_name','is_active'].forEach(k=>{ const el=form.querySelector('[name="'+k+'"]'); if(el && p[k]!==undefined && p[k]!==null) el.value = String(p[k]); });
+    const imgs = arrVals(p.image_urls);
+    const keep = document.getElementById('projExistingImages');
+    if(keep) keep.innerHTML = imgs.slice(0,6).map(im=>`<label class="flex items-center gap-2 text-[10px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 mb-1 mr-1"><input type="checkbox" name="keep_images[]" value="${esc(im)}" checked><img src="${esc(im)}" alt="" class="w-10 h-8 object-cover rounded">${esc(String(im).split('/').pop()||'image')}</label>`).join('') || '';
+    const title = document.getElementById('projectModalTitle'); if(title) title.textContent='Edit Project';
+    const btn = form.querySelector('button[type="submit"]'); if(btn) btn.innerHTML='<i class="fas fa-save mr-1"></i>Update Project';
+  }
+  document.getElementById('projectModal').classList.add('active');
+  document.body.style.overflow='hidden';
+}
+function closeProjectModal(){
+  const m=document.getElementById('projectModal'); if(m) m.classList.remove('active');
+  if(!document.getElementById('propertyModal')?.classList.contains('active') && !document.getElementById('agencyModal')?.classList.contains('active')) document.body.style.overflow='';
+  try{ const url=new URL(window.location.href); url.searchParams.delete('edit_project'); history.replaceState(null,'',url); }catch(e){}
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){ closePropertyModal(); closeAgencyModal(); closeProjectModal(); } });
 
 // --- Location autocomplete / current location (Nominatim, client-side) ---
 const locInput = document.getElementById('propLocation');
@@ -850,6 +1150,54 @@ document.addEventListener('submit', function(e){
   const btn = form.querySelector('button[type="submit"], button:not([type])');
   if(btn) setBtnLoading(btn,true,'Saving...');
 }, true);
+
+function previewProfileAvatar(input){
+  const file = input && input.files && input.files[0];
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const img = document.getElementById('profileAvatarPreview');
+  const ph = document.getElementById('profileAvatarPlaceholder');
+  if(img){ img.src = url; img.classList.remove('hidden'); }
+  if(ph) ph.classList.add('hidden');
+}
+
+// --- First Login Welcome Toast (right side, only on profile page) ---
+function showFirstLoginToast(percent) {
+  const toast = document.getElementById('firstLoginToast');
+  if (!toast) return;
+  const percentEl = document.getElementById('profilePercent');
+  if (percentEl) percentEl.textContent = percent + '%';
+  toast.classList.remove('hidden');
+  toast.classList.add('flex');
+}
+
+function dismissFirstLoginToast() {
+  const toast = document.getElementById('firstLoginToast');
+  if (!toast) return;
+  toast.classList.add('hidden');
+  toast.classList.remove('flex');
+}
+
+// --- Welcome toast for first login ---
+<?php if($showWelcome): ?>
+document.addEventListener('DOMContentLoaded', function(){
+  showFirstLoginToast(<?= (int)$profilePercent ?>);
+});
+<?php endif; ?>
 </script>
+
+<!-- FIRST LOGIN WELCOME TOAST (right side) -->
+<div id="firstLoginToast" class="fixed bottom-6 right-6 bg-navy text-white text-sm font-semibold px-5 py-4 rounded-xl shadow-2xl z-[5000] hidden flex items-start gap-3 max-w-md w-80">
+  <div class="w-10 h-10 rounded-full bg-accentOrange/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+    <i class="fas fa-user-check text-accentOrange text-lg"></i>
+  </div>
+  <div class="flex-1 min-w-0">
+    <p class="font-bold text-base">Welcome to HAVENTRA!</p>
+    <p class="text-white/80 text-sm mt-1">Complete your profile to get started. Your profile is <span id="profilePercent">0%</span> complete.</p>
+    <button onclick="dismissFirstLoginToast()" class="mt-2 text-xs text-white/70 hover:text-white underline">Dismiss</button>
+  </div>
+  <button onclick="dismissFirstLoginToast()" class="text-white/50 hover:text-white ml-2 flex-shrink-0"><i class="fas fa-times text-xs"></i></button>
+</div>
+
 </body>
 </html>

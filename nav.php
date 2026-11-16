@@ -1192,8 +1192,28 @@
 
             <!-- DESKTOP ACTIONS -->
             <div class="nav-actions">
-                <a href="<?= BASE_PATH ?>?page=login" class="btn-login">Sign In</a>
-                <a href="<?= BASE_PATH ?>?page=register" class="btn-primary">Get Started</a>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <div class="flex items-center gap-4">
+                        <span class="btn-login" style="cursor:default;">
+                            <?php
+                                $displayName = '';
+                                if (!empty($_SESSION['company_name'])) {
+                                    $displayName = htmlspecialchars($_SESSION['company_name']);
+                                } elseif (!empty($_SESSION['full_name'])) {
+                                    $displayName = htmlspecialchars($_SESSION['full_name']);
+                                } elseif (!empty($_SESSION['first_name'])) {
+                                    $displayName = htmlspecialchars($_SESSION['first_name']);
+                                } else {
+                                    $displayName = 'Account';
+                                }
+                                echo $displayName;
+                            ?>
+                        </span>
+                        <a href="<?= BASE_PATH ?>?page=profiles" class="btn-primary" style="padding: 10px 20px; font-size: 0.85rem;">Dashboard</a>
+                    </div>
+                <?php else: ?>
+                    <a href="<?= BASE_PATH ?>?page=register" class="btn-primary" id="getStartedBtn">Get Started</a>
+                <?php endif; ?>
             </div>
 
             <!-- MOBILE TOGGLE BUTTON -->
@@ -1257,10 +1277,30 @@
             </div>
 
             <div class="mobile-actions">
-                <a href="<?= BASE_PATH ?>?page=login" class="btn-login">Sign In</a>
-                <a href="<?= BASE_PATH ?>?page=register" class="btn-primary">Get Started</a>
-            </div>
-        </div>
+                <?php if (isset($_SESSION['user_id'])): ?>
+                    <div class="flex flex-col gap-3">
+                        <span class="btn-login text-center" style="cursor:default; border-color: transparent; background: transparent; color: var(--primary-navy); font-size: 1rem;">
+                            <?php
+                                $displayName = '';
+                                if (!empty($_SESSION['company_name'])) {
+                                    $displayName = htmlspecialchars($_SESSION['company_name']);
+                                } elseif (!empty($_SESSION['full_name'])) {
+                                    $displayName = htmlspecialchars($_SESSION['full_name']);
+                                } elseif (!empty($_SESSION['first_name'])) {
+                                    $displayName = htmlspecialchars($_SESSION['first_name']);
+                                } else {
+                                    $displayName = 'Account';
+                                }
+                                echo $displayName;
+                            ?>
+                        </span>
+                        <a href="<?= BASE_PATH ?>?page=profiles" class="btn-primary">Dashboard</a>
+                    </div>
+                <?php else: ?>
+                    <a href="<?= BASE_PATH ?>?page=login" class="btn-login">Sign In</a>
+                    <a href="<?= BASE_PATH ?>?page=register" class="btn-primary">Get Started</a>
+                <?php endif; ?>
+</div>
     </nav>
 
     <!-- Spacer for fixed nav -->
