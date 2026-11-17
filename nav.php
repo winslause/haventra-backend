@@ -1217,7 +1217,7 @@
             </div>
 
             <!-- MOBILE TOGGLE BUTTON -->
-            <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle Menu" aria-expanded="false">
+            <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle Menu" aria-expanded="false" onclick="var t=this,m=document.getElementById('mobile-menu');t.classList.toggle('active');m.classList.toggle('active');t.setAttribute('aria-expanded',t.classList.contains('active'));">
                 <span></span>
                 <span></span>
                 <span></span>
@@ -1232,7 +1232,7 @@
             </div>
 
             <div class="mobile-nav-item">
-                <a href="#" class="mobile-nav-link mobile-dropdown-toggle">
+                <a href="#" class="mobile-nav-link mobile-dropdown-toggle" onclick="event.preventDefault();this.nextElementSibling.classList.toggle('active');this.classList.toggle('active');">
                     Book Stays
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </a>
@@ -1245,7 +1245,7 @@
             </div>
 
             <div class="mobile-nav-item">
-                <a href="#" class="mobile-nav-link mobile-dropdown-toggle">
+                <a href="#" class="mobile-nav-link mobile-dropdown-toggle" onclick="event.preventDefault();this.nextElementSibling.classList.toggle('active');this.classList.toggle('active');">
                     Professionals
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </a>
@@ -1306,4 +1306,6 @@
     <!-- Spacer for fixed nav -->
     <div style="height: var(--nav-height);"></div>
 
-    <!-- Page content injected here by index.php -->
+    <!-- Page content injected here by index.php --><script>
+(function(){var el=document.querySelector('.mobile-nav-center .typing-text');if(!el)return;var words=['Apartments','Houses','Airbnbs','Houses for Sale','Property Management Companies','Agencies'];var i=0,j=0,del=false;function tick(){var w=words[i];el.textContent=w.substring(0,j);if(!del){j++;if(j>w.length){del=true;setTimeout(tick,900);return;}}else{j--;if(j===0){del=false;i=(i+1)%words.length;}}setTimeout(tick,del?40:90);}tick();})();
+</script>
