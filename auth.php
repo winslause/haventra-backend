@@ -1,3 +1,4 @@
+<?php if (!defined('BASE_PATH')) { $base_path = (strpos($_SERVER['HTTP_HOST'] ?? '', 'localhost') !== false) ? '/haventra/' : '/'; define('BASE_PATH', $base_path); } ?>
 <!-- ================= AUTH PAGE STYLES ================= -->
 <style>
     /* ===== SPLIT HERO ===== */
@@ -927,11 +928,12 @@ async function handleLogin(e) {
     formData.append('action', 'login');
     formData.append('email', document.getElementById('loginEmail').value);
     formData.append('password', document.getElementById('loginPassword').value);
-    formData.append('remember', document.querySelector('#modal-login .auth-checkbox').checked ? '1' : '0');
+    formData.append('remember', (document.querySelector('#modal-login .auth-checkbox')?.checked) ? '1' : '0');
 
     try {
         const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
             method: 'POST',
+            credentials: 'include',
             body: formData
         });
         const data = await response.json();
@@ -945,12 +947,15 @@ async function handleLogin(e) {
             
             setTimeout(() => {
                 closeModal('login');
-                if (data.user && data.user.first_login) {
-                    // First login ever - redirect to profile with welcome
+                if (data.user && data.user.role === 'admin') {
+                    // Admin user - redirect to admin page
+                    window.location.href = '<?= BASE_PATH ?>?page=admin';
+                } else if (data.user && data.user.first_login) {
+                    // First login ever - redirect to profile to complete profile
                     window.location.href = '<?= BASE_PATH ?>?page=profiles&welcome=1';
                 } else {
-                    // Returning user - reload current page to update nav
-                    window.location.reload();
+                    // Returning user - redirect to home page
+                    window.location.href = '<?= BASE_PATH ?>';
                 }
             }, 1500);
         } else {
@@ -996,6 +1001,7 @@ async function handleRegister(e) {
     try {
         const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
             method: 'POST',
+            credentials: 'include',
             body: formData
         });
         const data = await response.json();
@@ -1037,6 +1043,7 @@ async function handleForgot(e) {
     try {
         const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
             method: 'POST',
+            credentials: 'include',
             body: formData
         });
         const data = await response.json();
@@ -1096,6 +1103,7 @@ async function handleReset(e) {
     try {
         const response = await fetch('<?= BASE_PATH ?>api/auth.php', {
             method: 'POST',
+            credentials: 'include',
             body: formData
         });
         const data = await response.json();

@@ -885,10 +885,10 @@ unset($props);
 
 <!-- ===== AGENCIES & PROPERTY MANAGEMENT SECTION ===== -->
 <?php
-// Fetch agencies from database
+// Fetch agencies from database - latest 12 created
 $agenciesByCategory = [];
 try {
-    $stmt = $pdo->query("SELECT * FROM agencies WHERE is_active = 1 ORDER BY category, name");
+    $stmt = $pdo->query("SELECT * FROM agencies WHERE is_active = 1 ORDER BY created_at DESC LIMIT 12");
     while ($row = $stmt->fetch()) {
         $row['tags'] = json_decode($row['tags'], true) ?: [];
         $row['achievements'] = json_decode($row['achievements'], true) ?: [];
@@ -1086,11 +1086,21 @@ $agencyCountCleaning = count($agenciesByCategory['cleaning'] ?? []);
             </div>
 
             <!-- Services Tags -->
-            <div class="mb-6">
+            <div class="mb-6" id="agencyModalServicesWrap">
                 <h3 class="font-['Cormorant_Garamond'] text-xl text-[#00215E] font-semibold mb-2">
                     <i class="fas fa-concierge-bell text-[#F59E0B] mr-2"></i> Services Offered
                 </h3>
                 <div id="agencyModalServices" class="flex flex-wrap gap-2">
+                    <!-- injected -->
+                </div>
+            </div>
+
+            <!-- Projects -->
+            <div class="mb-6 hidden" id="agencyModalProjectsWrap">
+                <h3 class="font-['Cormorant_Garamond'] text-xl text-[#00215E] font-semibold mb-2">
+                    <i class="fas fa-project-diagram text-[#F59E0B] mr-2"></i> Projects
+                </h3>
+                <div id="agencyModalProjects" class="grid grid-cols-2 gap-2">
                     <!-- injected -->
                 </div>
             </div>
@@ -1112,6 +1122,22 @@ $agencyCountCleaning = count($agenciesByCategory['cleaning'] ?? []);
     </div>
 </div>
 
+
+<!-- ===== PROJECT DETAIL MODAL ===== -->
+<div id="projectModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-[3100] hidden items-center justify-center p-2 md:p-4 opacity-0 transition-opacity duration-300">
+    <div class="bg-white max-w-2xl w-full max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl relative transform scale-95 transition-transform duration-300" id="projectModalContent">
+        <button onclick="closeProjectModal()" class="sticky top-2 float-right mr-2 ml-auto w-9 h-9 bg-white rounded-full shadow-lg flex items-center justify-center hover:bg-[#00215E] hover:text-white transition-all z-50 border border-gray-200">
+            <i class="fas fa-times text-sm"></i>
+        </button>
+        <div class="p-4 md:p-8">
+            <h2 id="projectModalTitle" class="font-['Cormorant_Garamond'] text-2xl text-[#00215E] font-semibold mb-2"></h2>
+            <p id="projectModalMeta" class="text-gray-500 text-xs mb-4"></p>
+            <div id="projectModalImages" class="grid grid-cols-2 gap-2 mb-4"></div>
+            <p id="projectModalDesc" class="text-gray-600 text-sm leading-relaxed mb-3"></p>
+            <p id="projectModalLocDesc" class="text-gray-600 text-sm leading-relaxed"></p>
+        </div>
+    </div>
+</div>
 
 <!-- ===== STYLES FOR AGENCY SECTION ===== -->
 <style>
@@ -1234,6 +1260,13 @@ $agencyCountCleaning = count($agenciesByCategory['cleaning'] ?? []);
     #agencyModal.show #agencyModalContent {
         transform: scale(1);
     }
+    #projectModal.show {
+        display: flex;
+        opacity: 1;
+    }
+    #projectModal.show #projectModalContent {
+        transform: scale(1);
+    }
 
     /* Star rating */
     .star-filled { color: #F59E0B; }
@@ -1256,8 +1289,32 @@ $agencyCountCleaning = count($agenciesByCategory['cleaning'] ?? []);
     // ------------------------------------------------------------
     const agencyData = <?php
     $jsAgencies = [];
+    // Fetch projects grouped by owner
+    $projectsByOwner = [];
+    try {
+        $ps = $pdo->query("SELECT * FROM company_projects WHERE is_active=1");
+        foreach ($ps->fetchAll() as $pr) {
+            $key = ($pr['user_id'] ? 'u'.$pr['user_id'] : '') . '|' . ($pr['owner_email'] ?: '');
+            $projectsByOwner[$key][] = $pr;
+        }
+    } catch (Throwable $e) {}
     foreach ($agenciesByCategory as $category => $cats) {
         foreach ($cats as $row) {
+            $key = ($row['user_id'] ? 'u'.$row['user_id'] : '') . '|' . ($row['owner_email'] ?: '');
+            $projs = $projectsByOwner[$key] ?? [];
+            $projList = [];
+            foreach ($projs as $pr) {
+                $imgs = [];
+                if (!empty($pr['image_urls'])) { $d = json_decode($pr['image_urls'], true); if (is_array($d)) $imgs = $d; }
+                $projList[] = [
+                    'id' => 'proj-' . $pr['id'],
+                    'title' => $pr['title'],
+                    'description' => $pr['description'],
+                    'location' => $pr['location'],
+                    'type' => $pr['property_type'],
+                    'images' => $imgs,
+                ];
+            }
             $jsAgencies[] = [
                 'id' => 'agency-' . $row['id'],
                 'category' => $row['category'],
@@ -1280,6 +1337,7 @@ $agencyCountCleaning = count($agenciesByCategory['cleaning'] ?? []);
                 'website' => $row['website'],
                 'lat' => (float)$row['lat'],
                 'lng' => (float)$row['lng'],
+                'projects' => $projList,
             ];
         }
     }
@@ -1425,7 +1483,7 @@ $agencyCountCleaning = count($agenciesByCategory['cleaning'] ?? []);
             </li>
         `).join('');
 
-        // Services
+        <!-- Services -->
         const servicesContainer = document.getElementById('agencyModalServices');
         servicesContainer.innerHTML = company.services.map(s => `
             <span class="px-2 py-1 md:px-3 md:py-1.5 bg-[#F8FAFC] text-[#00215E] text-[10px] md:text-xs rounded-full border border-gray-200 font-medium">
@@ -1433,11 +1491,50 @@ $agencyCountCleaning = count($agenciesByCategory['cleaning'] ?? []);
             </span>
         `).join('');
 
+        // Projects
+        const projWrap = document.getElementById('agencyModalProjectsWrap');
+        const projContainer = document.getElementById('agencyModalProjects');
+        if (company.projects && company.projects.length) {
+            projWrap.classList.remove('hidden');
+            projContainer.innerHTML = company.projects.map(p => `
+                <button onclick="openProjectModal('${p.id}')" class="text-left bg-[#F8FAFC] border border-gray-200 rounded-xl overflow-hidden hover:border-[#005BB5] transition-colors">
+                    ${p.images && p.images.length ? `<img src="${p.images[0]}" class="w-full h-24 object-cover" alt="${p.title}">` : `<div class="w-full h-24 bg-gray-100 flex items-center justify-center"><i class="fas fa-building text-gray-300 text-xl"></i></div>`}
+                    <div class="p-2">
+                        <p class="text-[#00215E] text-xs font-semibold truncate">${p.title}</p>
+                        <p class="text-gray-400 text-[10px] truncate">${p.location || ''}</p>
+                    </div>
+                </button>
+            `).join('');
+            window.__projects = company.projects;
+        } else {
+            projWrap.classList.add('hidden');
+            projContainer.innerHTML = '';
+        }
+
         // Show modal
         const modal = document.getElementById('agencyModal');
         modal.classList.remove('hidden');
         setTimeout(() => { modal.classList.add('show'); }, 10);
         document.body.style.overflow = 'hidden';
+    };
+
+    window.openProjectModal = function(id) {
+        const p = (window.__projects || []).find(x => x.id === id);
+        if (!p) return;
+        document.getElementById('projectModalTitle').textContent = p.title;
+        document.getElementById('projectModalMeta').textContent = p.type || '';
+        document.getElementById('projectModalDesc').textContent = p.description || '';
+        document.getElementById('projectModalLocDesc').textContent = p.location || '';
+        const imgs = document.getElementById('projectModalImages');
+        imgs.innerHTML = (p.images || []).map(u => `<img src="${u}" class="w-full h-32 object-cover rounded-lg">`).join('');
+        const m = document.getElementById('projectModal');
+        m.classList.remove('hidden');
+        setTimeout(() => m.classList.add('show'), 10);
+    };
+    window.closeProjectModal = function() {
+        const m = document.getElementById('projectModal');
+        m.classList.remove('show');
+        setTimeout(() => m.classList.add('hidden'), 300);
     };
 
     window.closeAgencyModal = function() {

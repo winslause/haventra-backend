@@ -308,10 +308,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'title'=>post('title'),
         'description'=>post('description'),
         'location'=>post('location'),
-        'location_description'=>post('location_description'),
-        'project_type'=>post('project_type'),
-        'start_date'=>post('start_date') ?: null,
-        'end_date'=>post('end_date') ?: null,
+        'property_type'=>post('project_type'),
         'image_urls'=>jenc($allImages),
         'is_active'=>post('is_active','1')==='1'?1:0,
         'company_name'=>post('company_name'),
@@ -762,8 +759,7 @@ $showWelcome = isset($_GET['welcome']) && $_GET['welcome'] === '1';
           <div class="p-3">
             <h3 class="font-serif text-sm text-navy font-semibold truncate"><?= h($p['title']??'Untitled') ?></h3>
             <p class="text-[10px] text-slate-400 mt-0.5 truncate"><i class="fas fa-map-marker-alt text-[8px] mr-1"></i><?= h($p['location']??'') ?></p>
-            <?php if(!empty($p['project_type'])): ?><span class="inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-accentBlue/15 text-accentBlue"><?= h($p['project_type']) ?></span><?php endif; ?>
-            <?php if(!empty($p['start_date']) || !empty($p['end_date'])): ?><p class="text-[10px] text-slate-400 mt-1"><?= h($p['start_date']??'') ?><?= $p['start_date'] && $p['end_date'] ? ' — ' : '' ?><?= h($p['end_date']??'') ?></p><?php endif; ?>
+            <?php if(!empty($p['property_type'])): ?><span class="inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-accentBlue/15 text-accentBlue"><?= h($p['property_type']) ?></span><?php endif; ?>
             <div class="flex gap-2 mt-2">
               <button type="button" class="flex-1 text-center text-[11px] font-bold px-3 py-2 rounded-lg bg-slate-100 text-navy hover:bg-slate-200" onclick='openProjectModal(<?= $pjson ?>)'>Edit</button>
               <form method="post" onsubmit="return confirm('Delete this project?')"><input type="hidden" name="action" value="delete_project"><input type="hidden" name="id" value="<?= (int)($p['id']??0) ?>"><button class="btn-danger" type="submit">Delete</button></form>
@@ -782,9 +778,7 @@ $showWelcome = isset($_GET['welcome']) && $_GET['welcome'] === '1';
           <div class="md:col-span-2"><label class="label">Project Title</label><input class="input" name="title" required placeholder="e.g. Riverside Apartments Phase 1" value="<?= h($edit_proj['title']??'') ?>"></div>
           <div class="md:col-span-2"><label class="label">Description</label><textarea class="input" name="description" rows="4" placeholder="e.g. A modern residential development featuring spacious units, parking, and landscaped gardens."><?= h($edit_proj['description']??'') ?></textarea></div>
           <div><label class="label">Location</label><input class="input" name="location" value="<?= h($edit_proj['location']??'') ?>" placeholder="e.g. Runda, Nairobi"></div>
-          <div><label class="label">Project Type</label><input class="input" name="project_type" placeholder="e.g. Residential, Commercial, Mixed-use" value="<?= h($edit_proj['project_type']??'') ?>"></div>
-          <div><label class="label">Start Date</label><input class="input" type="date" name="start_date" value="<?= h($edit_proj['start_date']??'') ?>"></div>
-          <div><label class="label">End Date</label><input class="input" type="date" name="end_date" value="<?= h($edit_proj['end_date']??'') ?>"></div>
+          <div><label class="label">Property Type</label><input class="input" name="project_type" placeholder="e.g. Residential, Commercial, Mixed-use" value="<?= h($edit_proj['property_type']??'') ?>"></div>
           <div><label class="label">Company Name</label><input class="input" name="company_name" placeholder="e.g. Haventra Properties Ltd" value="<?= h($edit_proj['company_name']??$profile['company_name']??'') ?>"></div>
           <div><label class="label">Active Status</label><select class="input" name="is_active"><option value="1" <?= ((int)($edit_proj['is_active']??1)===1)?'selected':'' ?>>Active / Published</option><option value="0" <?= ((int)($edit_proj['is_active']??1)===0)?'selected':'' ?>>Inactive / Draft</option></select></div>
           <div class="md:col-span-2 border-t border-slate-100 pt-3">
@@ -1030,7 +1024,7 @@ function openProjectModal(p){
   const form = document.getElementById('projectForm');
   if(p && form){
     form.querySelector('[name="id"]').value = p.id || '';
-    ['title','description','location','project_type','start_date','end_date','company_name','is_active'].forEach(k=>{ const el=form.querySelector('[name="'+k+'"]'); if(el && p[k]!==undefined && p[k]!==null) el.value = String(p[k]); });
+    ['title','description','location','project_type','company_name','is_active'].forEach(k=>{ const el=form.querySelector('[name="'+k+'"]'); if(el && p[k]!==undefined && p[k]!==null) el.value = String(p[k]); });
     const imgs = arrVals(p.image_urls);
     const keep = document.getElementById('projExistingImages');
     if(keep) keep.innerHTML = imgs.slice(0,6).map(im=>`<label class="flex items-center gap-2 text-[10px] bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 mb-1 mr-1"><input type="checkbox" name="keep_images[]" value="${esc(im)}" checked><img src="${esc(im)}" alt="" class="w-10 h-8 object-cover rounded">${esc(String(im).split('/').pop()||'image')}</label>`).join('') || '';

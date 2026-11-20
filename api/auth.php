@@ -3,6 +3,12 @@ require_once __DIR__ . '/../includes/db.php';
 
 header('Content-Type: application/json');
 
+$remember = isset($_POST['remember']) && $_POST['remember'] === '1';
+if ($remember) {
+    // Extend session cookie lifetime for remember me (must be before session_start)
+    session_set_cookie_params(60 * 60 * 24 * 30); // 30 days
+}
+
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 $action = $_POST['action'] ?? '';
@@ -137,11 +143,6 @@ if ($action === 'login') {
         $_SESSION['company_name'] = $user['company_name'];
         $_SESSION['full_name'] = trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? ''));
         $_SESSION['name'] = $_SESSION['full_name'];
-
-        if ($remember) {
-            // Extend session lifetime (handled by PHP config)
-            ini_set('session.gc_maxlifetime', 60 * 60 * 24 * 30); // 30 days
-        }
 
         respond(true, [
             'user' => [

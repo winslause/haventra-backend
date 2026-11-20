@@ -1,3 +1,516 @@
+<?php
+require_once __DIR__ . '/includes/db.php';
+
+$adminProperties = [];
+$adminUsers = [];
+$adminAgencies = [];
+$adminBookings = [];
+$totalUsers = 0;
+$roleCounts = ['client' => 0, 'owner' => 0, 'company' => 0, 'agency' => 0];
+$suspendedCount = 0;
+$totalProperties = 0;
+$totalAgencies = 0;
+$propStatusCounts = ['all' => 0, 'active' => 0, 'pending' => 0, 'draft' => 0, 'suspended' => 0, 'reported' => 0];
+$agencyCategoryCounts = ['agency' => 0, 'property_mgmt' => 0, 'cleaning' => 0];
+$adminMessage = '';
+$adminMessageType = 'success';
+
+/* ===== AJAX GET ENDPOINTS ===== */
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['ajax'])) {
+    header('Content-Type: application/json');
+    $ajaxAction = $_GET['ajax'] ?? '';
+    try {
+        if ($ajaxAction === 'support_conversations') {
+            $search = $_GET['search'] ?? '';
+            $sql = "SELECT DISTINCT cm.*, 
+                        (SELECT message FROM contact_messages cm2 WHERE cm2.email = cm.email ORDER BY cm2.created_at DESC LIMIT 1) as last_message,
+                        (SELECT created_at FROM contact_messages cm2 WHERE cm2.email = cm.email ORDER BY cm2.created_at DESC LIMIT 1) as last_message_time
+                    FROM contact_messages cm";
+            $params = [];
+            if ($search) {
+                $sql .= " WHERE cm.name LIKE ? OR cm.email LIKE ?";
+                $like = '%' . $search . '%';
+                $params = [$like, $like];
+            }
+            $sql .= " GROUP BY cm.email ORDER BY cm.created_at DESC";
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $conversations = $stmt->fetchAll();
+            $formatted = [];
+            foreach ($conversations as $c) {
+                $colors = ['3B82F6', 'EF4444', '10B981', 'F59E0B', '8B5CF6', 'EC4899', '6366F1', '14B8A6'];
+                $colorIndex = crc32($c['email']) % count($colors);
+                $unread = 0;
+                $formatted[] = [
+                    'id' => $c['id'],
+                    'name' => $c['name'],
+                    'email' => $c['email'],
+                    'avatar_color' => $colors[$colorIndex],
+                    'last_message' => $c['last_message'] ?: $c['message'],
+                    'time' => date('h:i A', strtotime($c['last_message_time'] ?: $c['created_at'])),
+                    'unread' => $unread,
+                ];
+            }
+            echo json_encode(['success' => true, 'conversations' => $formatted]);
+            exit;
+        } elseif ($ajaxAction === 'support_messages') {
+            $contactId = (int)($_GET['contact_id'] ?? 0);
+            $email = $_GET['email'] ?? '';
+            if (!$email && $contactId) {
+                $stmt = $pdo->prepare("SELECT email FROM contact_messages WHERE id = ? LIMIT 1");
+                $stmt->execute([$contactId]);
+                $row = $stmt->fetch();
+                $email = $row['email'] ?: '';
+            }
+            if ($email) {
+                $stmt = $pdo->prepare("SELECT * FROM contact_messages WHERE email = ? ORDER BY created_at ASC");
+                $stmt->execute([$email]);
+            } else {
+                $stmt = $pdo->prepare("SELECT * FROM contact_messages WHERE id = ? ORDER BY created_at ASC");
+                $stmt->execute([$contactId]);
+            }
+            $messages = $stmt->fetchAll();
+            $formatted = [];
+            foreach ($messages as $m) {
+                $formatted[] = [
+                    'is_admin' => 0,
+                    'message' => $m['message'],
+                    'time' => date('h:i A', strtotime($m['created_at'])),
+                ];
+            }
+            echo json_encode(['success' => true, 'messages' => $formatted]);
+            exit;
+        } elseif ($ajaxAction === 'support_stats') {
+            echo json_encode([
+                'success' => true,
+                'totalConversations' => (int)$pdo->query("SELECT COUNT(DISTINCT email) FROM contact_messages")->fetchColumn(),
+                'totalMessages' => (int)$pdo->query("SELECT COUNT(*) FROM contact_messages")->fetchColumn(),
+            ]);
+            exit;
+        } elseif ($ajaxAction === 'support_bubble') {
+            $stmt = $pdo->query("SELECT DISTINCT email, name FROM contact_messages ORDER BY name");
+            $contacts = $stmt->fetchAll();
+            $bubbles = [];
+            $colors = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#6366F1', '#14B8A6'];
+            $ci = 0;
+            $rowIndex = 0;
+            foreach ($contacts as $c) {
+                $email = $c['email'];
+                $stmt2 = $pdo->prepare("SELECT name, COUNT(*) as cnt FROM contact_messages WHERE email = ? GROUP BY name");
+                $stmt2->execute([$email]);
+                $rows = $stmt2->fetchAll();
+                $senderCnt = 0;
+                $adminCnt = 0;
+                foreach ($rows as $r) {
+                    if (stripos($r['name'], 'Admin') !== false) {
+                        $adminCnt = (int)$r['cnt'];
+                    } else {
+                        $senderCnt = (int)$r['cnt'];
+                    }
+                }
+                $color = $colors[$ci % count($colors)];
+                $ci++;
+                if ($senderCnt > 0) {
+                    $bubbles[] = [
+                        'x' => -1,
+                        'y' => $rowIndex,
+                        'r' => min(20, 6 + $senderCnt * 1.5),
+                        'label' => htmlspecialchars($c['name'] ?: $email) . ' (sender)',
+                        'count' => $senderCnt,
+                        'color' => $color,
+                    ];
+                    $rowIndex++;
+                }
+                if ($adminCnt > 0) {
+                    $bubbles[] = [
+                        'x' => 1,
+                        'y' => $rowIndex,
+                        'r' => min(20, 6 + $adminCnt * 1.5),
+                        'label' => htmlspecialchars($c['name'] ?: $email) . ' (admin)',
+                        'count' => $adminCnt,
+                        'color' => $color,
+                    ];
+                    $rowIndex++;
+                }
+            }
+            echo json_encode(['success' => true, 'bubbles' => $bubbles]);
+            exit;
+        } elseif ($ajaxAction === 'booking_connections') {
+            $connections = [];
+            $stmt = $pdo->query("
+                SELECT DISTINCT cp.user_id, cp.owner_email,
+                    u.first_name, u.last_name, u.email as client_email,
+                    up.full_name as client_full_name, up.location as client_location,
+                    ou.first_name as owner_first_name, ou.last_name as owner_last_name, ou.company_name as owner_company
+                FROM company_projects cp
+                LEFT JOIN users u ON cp.user_id = u.id
+                LEFT JOIN user_profiles up ON (cp.user_id = up.user_id OR cp.owner_email = up.email)
+                LEFT JOIN users ou ON cp.owner_email = ou.email
+                WHERE cp.user_id IS NOT NULL AND cp.owner_email IS NOT NULL AND cp.owner_email != ''
+                ORDER BY cp.created_at DESC
+            ");
+            $rows = $stmt->fetchAll();
+            foreach ($rows as $r) {
+                $clientEmail = $r['client_email'] ?: '';
+                $ownerEmail = $r['owner_email'] ?: '';
+                // Count messages between this client and owner
+                $msgCnt = 0;
+                if ($clientEmail && $ownerEmail) {
+                    $stmt2 = $pdo->prepare("
+                        SELECT COUNT(*) FROM chat_messages 
+                        WHERE (sender_email = ? OR sender_email = ?)
+                    ");
+                    $stmt2->execute([$clientEmail, $ownerEmail]);
+                    $msgCnt = (int)$stmt2->fetchColumn();
+                }
+                $clientName = $r['client_full_name'] ?: ($r['first_name'] . ' ' . $r['last_name']);
+                $clientName = trim($clientName) ?: $clientEmail;
+                $ownerName = $r['owner_company'] ?: ($r['owner_first_name'] . ' ' . $r['owner_last_name']);
+                $ownerName = trim($ownerName) ?: $ownerEmail;
+                $connections[] = [
+                    'client_name' => htmlspecialchars($clientName),
+                    'client_email' => htmlspecialchars($clientEmail),
+                    'owner_name' => htmlspecialchars($ownerName),
+                    'owner_email' => htmlspecialchars($ownerEmail),
+                    'message_count' => $msgCnt,
+                ];
+            }
+            echo json_encode(['success' => true, 'connections' => $connections]);
+            exit;
+        }
+        echo json_encode(['success' => false, 'message' => 'Unknown AJAX action.']);
+        exit;
+    } catch (PDOException $e) {
+        echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+        exit;
+    }
+}
+
+function refreshCounts($pdo) {
+    global $totalUsers, $roleCounts, $suspendedCount, $totalProperties, $totalAgencies, $propStatusCounts, $agencyCategoryCounts, $totalBookings, $bookingStatusCounts;
+    $totalUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role != 'admin'")->fetchColumn();
+    $roleCounts = ['client' => 0, 'owner' => 0, 'company' => 0, 'agency' => 0];
+    $rows = $pdo->query("SELECT role FROM users WHERE role != 'admin'")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($rows as $r) {
+        if (array_key_exists($r, $roleCounts)) {
+            $roleCounts[$r]++;
+        }
+    }
+    $suspendedCount = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role != 'admin' AND first_login = 1")->fetchColumn();
+    $totalProperties = (int)$pdo->query("SELECT COUNT(*) FROM properties")->fetchColumn();
+    $propStatusCounts['all'] = $totalProperties;
+    $propStatusCounts['active'] = (int)$pdo->query("SELECT COUNT(*) FROM properties WHERE is_active = 1")->fetchColumn();
+    $propStatusCounts['pending'] = (int)$pdo->query("SELECT COUNT(*) FROM properties WHERE is_active = 0")->fetchColumn();
+    $propStatusCounts['draft'] = 0;
+    $propStatusCounts['suspended'] = 0;
+    $propStatusCounts['reported'] = 0;
+    $totalAgencies = (int)$pdo->query("SELECT COUNT(*) FROM agencies")->fetchColumn();
+    $agencyCategoryCounts = ['agency' => 0, 'property_mgmt' => 0, 'cleaning' => 0];
+    $catRows = $pdo->query("SELECT category FROM agencies")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($catRows as $c) {
+        if (array_key_exists($c, $agencyCategoryCounts)) {
+            $agencyCategoryCounts[$c]++;
+        }
+    }
+    $totalBookings = (int)$pdo->query("SELECT COUNT(*) FROM company_projects")->fetchColumn();
+    $bookingStatusCounts = ['total' => $totalBookings, 'confirmed' => 0, 'pending' => 0, 'upcoming' => 0, 'active' => 0, 'completed' => 0, 'cancelled' => 0];
+    $activeBookings = (int)$pdo->query("SELECT COUNT(*) FROM company_projects WHERE is_active = 1")->fetchColumn();
+    $bookingStatusCounts['active'] = $activeBookings;
+    $bookingStatusCounts['confirmed'] = $activeBookings;
+    $bookingStatusCounts['cancelled'] = $totalBookings - $activeBookings;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json');
+    $action = $_POST['action'] ?? '';
+    $userId = (int)($_POST['user_id'] ?? 0);
+    $propId = (int)($_POST['prop_id'] ?? 0);
+    $bookingId = (int)($_POST['booking_id'] ?? 0);
+    $result = ['success' => false, 'message' => ''];
+    try {
+        if ($action === 'activate' && $userId) {
+            $pdo->prepare("UPDATE users SET first_login = 0 WHERE id = ? AND role != 'admin'")->execute([$userId]);
+            $result['success'] = true;
+            $result['message'] = 'User activated successfully.';
+        } elseif ($action === 'suspend' && $userId) {
+            $pdo->prepare("UPDATE users SET first_login = 1 WHERE id = ? AND role != 'admin'")->execute([$userId]);
+            $result['success'] = true;
+            $result['message'] = 'User suspended successfully.';
+        } elseif ($action === 'delete' && $userId) {
+            $pdo->prepare("DELETE FROM user_profiles WHERE user_id = ?")->execute([$userId]);
+            $pdo->prepare("DELETE FROM users WHERE id = ? AND role != 'admin'")->execute([$userId]);
+            $result['success'] = true;
+            $result['message'] = 'User deleted successfully.';
+        } elseif ($action === 'update_role' && $userId) {
+            $role = $_POST['role'] ?? '';
+            if (in_array($role, ['client', 'owner', 'company', 'agency'])) {
+                $pdo->prepare("UPDATE users SET role = ? WHERE id = ? AND role != 'admin'")->execute([$role, $userId]);
+                $result['success'] = true;
+                $result['message'] = 'User role updated successfully.';
+            } else {
+                $result['message'] = 'Invalid role.';
+            }
+        } elseif ($action === 'create') {
+            $email = $_POST['email'] ?? '';
+            $role = $_POST['role'] ?? 'client';
+            $phone = $_POST['phone'] ?? '';
+            $fullName = $_POST['full_name'] ?? '';
+            $nameParts = explode(' ', trim($fullName), 2);
+            $firstName = $nameParts[0] ?? '';
+            $lastName = $nameParts[1] ?? '';
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $result['message'] = 'Invalid email address.';
+            } elseif (!in_array($role, ['client', 'owner', 'company', 'agency'])) {
+                $result['message'] = 'Invalid role.';
+            } else {
+                try {
+                    $pdo->prepare("INSERT INTO users (email, password_hash, first_name, last_name, phone, role, is_verified, first_login, created_at) VALUES (?, '', ?, ?, ?, ?, 0, 1, NOW())")->execute([$email, $firstName, $lastName, $phone, $role]);
+                    $newId = (int)$pdo->lastInsertId();
+                    $pdo->prepare("INSERT INTO user_profiles (user_id, email, full_name, phone, account_role, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NOW(), NOW())")->execute([$newId, $email, $fullName, $phone, $role]);
+                    $result['success'] = true;
+                    $result['message'] = 'User created successfully.';
+                } catch (PDOException $e) {
+                    $result['message'] = 'Could not create user (email may already exist).';
+                }
+            }
+        } elseif ($action === 'approve' && $propId) {
+            $pdo->prepare("UPDATE properties SET is_active = 1 WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Property approved successfully.';
+        } elseif ($action === 'reject' && $propId) {
+            $pdo->prepare("UPDATE properties SET is_active = 0 WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Property rejected successfully.';
+        } elseif ($action === 'delete_prop' && $propId) {
+            $pdo->prepare("DELETE FROM properties WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Property deleted successfully.';
+        } elseif ($action === 'update_prop' && $propId) {
+            $title = $_POST['title'] ?? '';
+            $location = $_POST['location'] ?? '';
+            $price = $_POST['price'] ?? '';
+            $type = $_POST['type'] ?? '';
+            $is_active = isset($_POST['is_active']) ? 1 : 0;
+            if (!in_array($type, ['rent', 'sale', 'booking'])) {
+                $type = 'rent';
+            }
+            $pdo->prepare("UPDATE properties SET title = ?, location = ?, price = ?, type = ?, is_active = ? WHERE id = ?")->execute([$title, $location, $price, $type, $is_active, $propId]);
+            $result['success'] = true;
+            $result['message'] = 'Property updated successfully.';
+        } elseif ($action === 'create_prop') {
+            $title = $_POST['title'] ?? '';
+            $location = $_POST['location'] ?? '';
+            $price = $_POST['price'] ?? '';
+            $type = $_POST['type'] ?? 'rent';
+            if (!in_array($type, ['rent', 'sale', 'booking'])) {
+                $type = 'rent';
+            }
+            $pdo->prepare("INSERT INTO properties (title, location, price, price_suffix, type, is_active, created_at, date_added) VALUES (?, ?, ?, 'KSh', ?, 1, NOW(), NOW())")->execute([$title, $location, $price, $type]);
+            $result['success'] = true;
+            $result['message'] = 'Property created successfully.';
+        } elseif ($action === 'verify' && $propId) {
+            $pdo->prepare("UPDATE agencies SET verified = 1 WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Agency verified successfully.';
+        } elseif ($action === 'unverify' && $propId) {
+            $pdo->prepare("UPDATE agencies SET verified = 0 WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Agency unverified successfully.';
+        } elseif ($action === 'activate_agency' && $propId) {
+            $pdo->prepare("UPDATE agencies SET is_active = 1 WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Agency activated successfully.';
+        } elseif ($action === 'suspend_agency' && $propId) {
+            $pdo->prepare("UPDATE agencies SET is_active = 0 WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Agency suspended successfully.';
+        } elseif ($action === 'delete_agency' && $propId) {
+            $pdo->prepare("DELETE FROM agencies WHERE id = ?")->execute([$propId]);
+            $result['success'] = true;
+            $result['message'] = 'Agency deleted successfully.';
+        } elseif ($action === 'update_agency' && $propId) {
+            $name = $_POST['name'] ?? '';
+            $location = $_POST['location'] ?? '';
+            $category = $_POST['category'] ?? '';
+            $rating = $_POST['rating'] ?? '';
+            $phone = $_POST['phone'] ?? '';
+            $email = $_POST['email'] ?? '';
+            $is_active = isset($_POST['is_active']) ? 1 : 0;
+            $verified = isset($_POST['verified']) ? 1 : 0;
+            if (!in_array($category, ['agency', 'property_mgmt', 'cleaning'])) {
+                $category = 'agency';
+            }
+            $pdo->prepare("UPDATE agencies SET name = ?, location = ?, category = ?, rating = ?, phone = ?, email = ?, is_active = ?, verified = ? WHERE id = ?")->execute([$name, $location, $category, $rating, $phone, $email, $is_active, $verified, $propId]);
+            $result['success'] = true;
+            $result['message'] = 'Agency updated successfully.';
+        } elseif ($action === 'create_agency') {
+            $name = $_POST['name'] ?? '';
+            $location = $_POST['location'] ?? '';
+            $category = $_POST['category'] ?? 'agency';
+            $rating = $_POST['rating'] ?? '0';
+            $phone = $_POST['phone'] ?? '';
+            $email = $_POST['email'] ?? '';
+            $logo = $_POST['logo'] ?? '';
+            $is_active = isset($_POST['is_active']) ? 1 : 0;
+            $verified = isset($_POST['verified']) ? 0 : 0;
+            if (!in_array($category, ['agency', 'property_mgmt', 'cleaning'])) {
+                $category = 'agency';
+            }
+            $categoryLabels = ['agency' => 'Real Estate Agency', 'property_mgmt' => 'Property Management', 'cleaning' => 'Cleaning'];
+            $categoryIcons = ['agency' => 'fa-handshake', 'property_mgmt' => 'fa-shield-alt', 'cleaning' => 'fa-spray-can'];
+            $categoryColors = ['agency' => 'purple', 'property_mgmt' => 'blue', 'cleaning' => 'green'];
+            $icon = $categoryIcons[$category] ?? $categoryIcons['agency'];
+            $pdo->prepare("INSERT INTO agencies (name, category, category_label, location, rating, reviews, verified, years, years_label, clients, satisfaction, icon, logo, color, short_desc, about, phone, email, whatsapp, website, is_active, created_at, date_added) VALUES (?, ?, ?, ?, ?, 0, ?, 0, '', '', '', ?, ?, ?, '', '', ?, ?, ?, ?, ?, NOW(), NOW())")->execute([$name, $category, $categoryLabels[$category] ?? $categoryLabels['agency'], $location, $rating, $verified, $icon, $logo, $categoryColors[$category] ?? 'purple', $phone, $email, $phone, $email, $is_active]);
+            $result['success'] = true;
+            $result['message'] = 'Agency created successfully.';
+        } elseif ($action === 'send_support_message') {
+            $contactId = (int)($_POST['contact_id'] ?? 0);
+            $message = $_POST['message'] ?? '';
+            $contactEmail = $_POST['contact_email'] ?? '';
+            if (trim($message) === '') {
+                $result['message'] = 'Message cannot be empty.';
+            } else {
+                // Get contact email if not provided
+                if (!$contactEmail && $contactId) {
+                    $stmt = $pdo->prepare("SELECT email, name FROM contact_messages WHERE id = ?");
+                    $stmt->execute([$contactId]);
+                    $contact = $stmt->fetch();
+                    $contactEmail = $contact['email'] ?: '';
+                    $contactName = $contact['name'] ?: 'User';
+                } elseif ($contactEmail) {
+                    $stmt = $pdo->prepare("SELECT name FROM contact_messages WHERE email = ? LIMIT 1");
+                    $stmt->execute([$contactEmail]);
+                    $contact = $stmt->fetch();
+                    $contactName = $contact['name'] ?: 'User';
+                } else {
+                    $contactName = 'User';
+                }
+                // Insert admin reply as a chat message
+                $pdo->prepare("INSERT INTO contact_messages (name, email, message, created_at) VALUES (?, ?, ?, NOW())")->execute(['Admin (You)', $contactEmail, $message]);
+                $result['success'] = true;
+                $result['message'] = 'Message sent.';
+            }
+        } elseif ($action === 'delete_booking' && $bookingId) {
+            $pdo->prepare("DELETE FROM company_projects WHERE id = ?")->execute([$bookingId]);
+            $result['success'] = true;
+            $result['message'] = 'Booking deleted successfully.';
+        } else {
+            $result['message'] = 'Unknown action.';
+        }
+    } catch (PDOException $e) {
+        $result['message'] = 'Database error: ' . $e->getMessage();
+    }
+    if ($result['success']) {
+        refreshCounts($pdo);
+        $result['counts'] = [
+            'totalUsers' => $totalUsers,
+            'roleCounts' => $roleCounts,
+            'suspendedCount' => $suspendedCount,
+            'totalProperties' => $totalProperties,
+            'propStatusCounts' => $propStatusCounts,
+            'totalAgencies' => $totalAgencies,
+            'agencyCategoryCounts' => $agencyCategoryCounts,
+            'totalBookings' => $totalBookings,
+            'bookingStatusCounts' => $bookingStatusCounts,
+        ];
+    }
+    echo json_encode($result);
+    exit;
+}
+
+try {
+    $adminUsers = $pdo->query("SELECT u.*, up.location, up.phone as profile_phone, up.avatar_url, up.full_name,
+        (SELECT COUNT(*) FROM properties p WHERE p.user_id = u.id OR p.owner_email = u.email) AS listings_count
+        FROM users u
+        LEFT JOIN user_profiles up ON (u.id = up.user_id OR u.email = up.email)
+        WHERE u.role != 'admin'
+        ORDER BY u.created_at DESC")->fetchAll();
+    $totalUsers = count($adminUsers);
+    foreach ($adminUsers as $u) {
+        $r = $u['role'] ?? 'client';
+        if (array_key_exists($r, $roleCounts)) {
+            $roleCounts[$r]++;
+        }
+    }
+    $suspendedCount = 0;
+    $totalProperties = (int)$pdo->query("SELECT COUNT(*) FROM properties")->fetchColumn();
+    $propStatusCounts['all'] = $totalProperties;
+    $propStatusCounts['active'] = (int)$pdo->query("SELECT COUNT(*) FROM properties WHERE is_active = 1")->fetchColumn();
+    $propStatusCounts['pending'] = (int)$pdo->query("SELECT COUNT(*) FROM properties WHERE is_active = 0")->fetchColumn();
+    $propStatusCounts['draft'] = 0;
+    $propStatusCounts['suspended'] = 0;
+    $propStatusCounts['reported'] = 0;
+    $adminProperties = $pdo->query("SELECT p.*, u.first_name, u.last_name, u.email, u.company_name, up.location as profile_location
+        FROM properties p
+        LEFT JOIN users u ON (p.user_id = u.id OR p.owner_email = u.email)
+        LEFT JOIN user_profiles up ON (u.id = up.user_id OR u.email = up.email)
+        ORDER BY p.created_at DESC")->fetchAll();
+    $totalAgencies = (int)$pdo->query("SELECT COUNT(*) FROM agencies")->fetchColumn();
+    $adminAgencies = $pdo->query("SELECT * FROM agencies ORDER BY created_at DESC")->fetchAll();
+    $adminBookings = $pdo->query("
+        SELECT cp.*, 
+            u.first_name as client_first_name, u.last_name as client_last_name, u.email as client_email, u.role as client_role,
+            up.full_name as client_full_name, up.location as client_location, up.phone as client_phone,
+            ou.first_name as owner_first_name, ou.last_name as owner_last_name, ou.company_name as owner_company
+        FROM company_projects cp
+        LEFT JOIN users u ON cp.user_id = u.id
+        LEFT JOIN user_profiles up ON (cp.user_id = up.user_id OR cp.owner_email = up.email)
+        LEFT JOIN users ou ON cp.owner_email = ou.email
+        ORDER BY cp.created_at DESC
+    ")->fetchAll();
+    $totalBookings = count($adminBookings);
+    $bookingStatusCounts = ['total' => $totalBookings, 'confirmed' => 0, 'pending' => 0, 'upcoming' => 0, 'active' => 0, 'completed' => 0, 'cancelled' => 0];
+    foreach ($adminBookings as $b) {
+        if (!empty($b['is_active']) && $b['is_active'] == 1) {
+            $bookingStatusCounts['active']++;
+            $bookingStatusCounts['confirmed']++;
+        } else {
+            $bookingStatusCounts['cancelled']++;
+        }
+    }
+
+    // Dashboard computed values
+    $unverifiedUsers = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role != 'admin' AND is_verified = 0")->fetchColumn();
+    $pendingProperties = $propStatusCounts['pending'];
+
+    // Property distribution by type
+    $propTypeCounts = ['rent' => 0, 'sale' => 0, 'booking' => 0];
+    $typeRows = $pdo->query("SELECT type FROM properties")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($typeRows as $t) {
+        if (array_key_exists($t, $propTypeCounts)) {
+            $propTypeCounts[$t]++;
+        }
+    }
+
+    // Estimated revenue from bookings (sum of property prices for active bookings)
+    $revenueMTD = 0;
+    $stmt = $pdo->query("SELECT p.price FROM properties p JOIN company_projects cp ON (cp.user_id = p.user_id OR cp.owner_email = p.owner_email) WHERE cp.is_active = 1");
+    $prices = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($prices as $price) {
+        $revenueMTD += (int)preg_replace('/[^0-9]/', '', $price);
+    }
+
+    // Property distribution by badge for chart
+    $propBadgeCounts = ['active' => 0, 'For Sale' => 0, 'Short Stay' => 0];
+    $badgeRows = $pdo->query("SELECT badge FROM properties")->fetchAll(PDO::FETCH_COLUMN);
+    foreach ($badgeRows as $b) {
+        if (array_key_exists($b, $propBadgeCounts)) {
+            $propBadgeCounts[$b]++;
+        }
+    }
+
+} catch (PDOException $e) {
+    $adminUsers = [];
+    $adminProperties = [];
+    $adminAgencies = [];
+    $adminBookings = [];
+    $unverifiedUsers = 0;
+    $pendingProperties = 0;
+    $propTypeCounts = ['rent' => 0, 'sale' => 0, 'booking' => 0];
+    $revenueMTD = 0;
+    $propBadgeCounts = ['active' => 0, 'For Sale' => 0, 'Short Stay' => 0];
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,8 +520,9 @@
     <meta name="description" content="HAVENTRA administration panel — manage users, properties, bookings, agencies, and platform settings.">
     <meta name="robots" content="noindex, nofollow">
     
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Montserrat:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -155,13 +669,27 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
         /* ===== MODAL ===== */
-        .admin-modal { opacity: 0; transition: opacity 0.25s ease; }
-        .admin-modal.show { opacity: 1; }
+        .admin-modal { opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+        .admin-modal.show { opacity: 1; pointer-events: auto; }
         .admin-modal .modal-inner {
             transform: scale(0.95) translateY(10px);
             transition: transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+            max-height: 90vh;
+            overflow-y: auto;
         }
         .admin-modal.show .modal-inner { transform: scale(1) translateY(0); }
+        .admin-modal .modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F1F5F9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .admin-modal .modal-close:hover { background: #E2E8F0; color: #DC2626; }
 
         /* ===== FADE IN ===== */
         @keyframes fadeIn {
@@ -261,17 +789,17 @@
             <a onclick="showAdminSection('users', this)" class="admin-nav">
                 <i class="fas fa-users nav-icon"></i>
                 <span>Users</span>
-                <span class="ml-auto text-[9px] bg-accentBlue/30 text-white font-bold px-1.5 py-0.5 rounded-full">1,248</span>
+                <span class="ml-auto text-[9px] bg-accentBlue/30 text-white font-bold px-1.5 py-0.5 rounded-full" id="sidebarUsersCount"><?= number_format($totalUsers) ?></span>
             </a>
             <a onclick="showAdminSection('properties', this)" class="admin-nav">
                 <i class="fas fa-building nav-icon"></i>
                 <span>Properties</span>
-                <span class="ml-auto text-[9px] bg-accentOrange/30 text-white font-bold px-1.5 py-0.5 rounded-full">2,847</span>
+                <span class="ml-auto text-[9px] bg-accentOrange/30 text-white font-bold px-1.5 py-0.5 rounded-full" id="sidebarPropertiesCount"><?= number_format($totalProperties) ?></span>
             </a>
             <a onclick="showAdminSection('agencies', this)" class="admin-nav">
                 <i class="fas fa-handshake nav-icon"></i>
                 <span>Agencies</span>
-                <span class="ml-auto text-[9px] bg-adminPurple/40 text-white font-bold px-1.5 py-0.5 rounded-full">156</span>
+                <span class="ml-auto text-[9px] bg-adminPurple/40 text-white font-bold px-1.5 py-0.5 rounded-full" id="sidebarAgenciesCount"><?= number_format($totalAgencies) ?></span>
             </a>
             <a onclick="showAdminSection('bookings', this)" class="admin-nav">
                 <i class="fas fa-calendar-check nav-icon"></i>
@@ -280,7 +808,7 @@
             <a onclick="showAdminSection('messages', this)" class="admin-nav">
                 <i class="fas fa-comments nav-icon"></i>
                 <span>Support</span>
-                <span class="ml-auto text-[9px] bg-red-500 text-white font-bold px-1.5 py-0.5 rounded-full">12</span>
+                <span class="ml-auto text-[9px] bg-red-500 text-white font-bold px-1.5 py-0.5 rounded-full" id="sidebarSupportCount">12</span>
             </a>
         </div>
 
@@ -293,7 +821,7 @@
             <a onclick="showAdminSection('payouts', this)" class="admin-nav">
                 <i class="fas fa-money-bill-wave nav-icon"></i>
                 <span>Payouts</span>
-                <span class="ml-auto text-[9px] bg-amber-500/30 text-white font-bold px-1.5 py-0.5 rounded-full">5</span>
+                <span class="ml-auto text-[9px] bg-amber-500/30 text-white font-bold px-1.5 py-0.5 rounded-full" id="sidebarPayoutsCount">5</span>
             </a>
         </div>
 
@@ -404,7 +932,7 @@
                     <div>
                         <p class="text-[10px] uppercase tracking-widest text-white/60 font-bold mb-1">Admin Dashboard</p>
                         <h2 class="font-serif text-2xl md:text-3xl font-semibold mb-1">Welcome back, Admin 👋</h2>
-                        <p class="text-white/70 text-xs md:text-sm">Platform is healthy. <span class="text-accentOrange font-bold">2,847 properties</span>, <span class="text-accentOrange font-bold">1,248 users</span>, <span class="text-accentOrange font-bold">156 agencies</span>.</p>
+                        <p class="text-white/70 text-xs md:text-sm">Platform is healthy. <span class="text-accentOrange font-bold"><?= number_format($totalProperties) ?> properties</span>, <span class="text-accentOrange font-bold"><?= number_format($totalUsers) ?> users</span>, <span class="text-accentOrange font-bold"><?= number_format($totalAgencies) ?> agencies</span>.</p>
                     </div>
                     <div class="flex gap-2 self-start md:self-center">
                         <button onclick="showAdminSection('reports', document.querySelectorAll('.admin-nav')[14])" class="bg-accentOrange text-navy text-xs font-bold px-4 py-2.5 rounded-xl hover:bg-white transition-colors flex items-center gap-2">
@@ -423,7 +951,7 @@
                         </div>
                         <span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">+8.2%</span>
                     </div>
-                    <p class="text-2xl font-bold text-navy">1,248</p>
+                    <p class="text-2xl font-bold text-navy"><?= number_format($totalUsers) ?></p>
                     <p class="text-[10px] text-slate-400 font-medium">Total Users</p>
                     <div class="mini-chart mt-2">
                         <div class="mini-bar blue" style="height: 40%"></div>
@@ -443,7 +971,7 @@
                         </div>
                         <span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">+12.5%</span>
                     </div>
-                    <p class="text-2xl font-bold text-navy">2,847</p>
+                    <p class="text-2xl font-bold text-navy"><?= number_format($totalProperties) ?></p>
                     <p class="text-[10px] text-slate-400 font-medium">Properties</p>
                     <div class="mini-chart mt-2">
                         <div class="mini-bar orange" style="height: 50%"></div>
@@ -463,7 +991,7 @@
                         </div>
                         <span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">+5.7%</span>
                     </div>
-                    <p class="text-2xl font-bold text-navy">4,521</p>
+                    <p class="text-2xl font-bold text-navy"><?= number_format($totalBookings) ?></p>
                     <p class="text-[10px] text-slate-400 font-medium">Bookings</p>
                     <div class="mini-chart mt-2">
                         <div class="mini-bar green" style="height: 60%"></div>
@@ -483,7 +1011,7 @@
                         </div>
                         <span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full">+15.3%</span>
                     </div>
-                    <p class="text-2xl font-bold text-navy">KSh 8.4M</p>
+                    <p class="text-2xl font-bold text-navy">KSh <?= number_format($revenueMTD) ?></p>
                     <p class="text-[10px] text-slate-400 font-medium">Revenue (MTD)</p>
                     <div class="mini-chart mt-2">
                         <div class="mini-bar purple" style="height: 35%"></div>
@@ -535,51 +1063,27 @@
                 <div class="bg-white rounded-2xl border border-slate-100 p-4 md:p-5">
                     <h3 class="font-serif text-lg text-navy font-semibold mb-3">Property Distribution</h3>
                     <div class="space-y-3">
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-[11px] font-semibold text-navy">Airbnb / Short Stay</span>
-                                <span class="text-[10px] font-bold text-navy">1,145</span>
+                        <?php
+                        $maxBadge = max($propBadgeCounts);
+                        $badgeOrder = ['Short Stay', 'For Rent', 'For Sale', 'active'];
+                        $badgeLabels = ['Short Stay' => 'Airbnb / Short Stay', 'For Rent' => 'For Rent', 'For Sale' => 'For Sale', 'active' => 'Active'];
+                        $badgeColors = ['Short Stay' => 'accentBlue', 'For Rent' => 'adminGreen', 'For Sale' => 'accentOrange', 'active' => 'adminPurple'];
+                        foreach ($badgeOrder as $badge) {
+                            $count = $propBadgeCounts[$badge] ?? 0;
+                            $pct = $maxBadge > 0 ? round(($count / $maxBadge) * 100) : 0;
+                            $label = $badgeLabels[$badge] ?? $badge;
+                            $color = $badgeColors[$badge] ?? 'slate-400';
+                        ?>
+                            <div>
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-[11px] font-semibold text-navy"><?= htmlspecialchars($label) ?></span>
+                                    <span class="text-[10px] font-bold text-navy"><?= number_format($count) ?></span>
+                                </div>
+                                <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div class="h-full bg-<?= $color ?> rounded-full" style="width: <?= $pct ?>%"></div>
+                                </div>
                             </div>
-                            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div class="h-full bg-accentBlue rounded-full" style="width: 80%"></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-[11px] font-semibold text-navy">For Rent</span>
-                                <span class="text-[10px] font-bold text-navy">986</span>
-                            </div>
-                            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div class="h-full bg-adminGreen rounded-full" style="width: 69%"></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-[11px] font-semibold text-navy">For Sale</span>
-                                <span class="text-[10px] font-bold text-navy">716</span>
-                            </div>
-                            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div class="h-full bg-accentOrange rounded-full" style="width: 50%"></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-[11px] font-semibold text-navy">Land</span>
-                                <span class="text-[10px] font-bold text-navy">389</span>
-                            </div>
-                            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div class="h-full bg-adminPurple rounded-full" style="width: 27%"></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-[11px] font-semibold text-navy">Commercial</span>
-                                <span class="text-[10px] font-bold text-navy">245</span>
-                            </div>
-                            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div class="h-full bg-slate-400 rounded-full" style="width: 17%"></div>
-                            </div>
-                        </div>
+                        <?php } ?>
                     </div>
                 </div>
             </div>
@@ -596,7 +1100,7 @@
                                 <i class="fas fa-clock text-white text-xs"></i>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-[11px] font-bold text-navy">12 pending properties</p>
+                                <p class="text-[11px] font-bold text-navy"><?= number_format($pendingProperties) ?> pending properties</p>
                                 <p class="text-[9px] text-slate-500">Awaiting approval</p>
                             </div>
                             <i class="fas fa-chevron-right text-slate-400 text-[10px]"></i>
@@ -606,8 +1110,8 @@
                                 <i class="fas fa-money-bill-wave text-white text-xs"></i>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-[11px] font-bold text-navy">5 payout requests</p>
-                                <p class="text-[9px] text-slate-500">Total: KSh 425,000</p>
+                                <p class="text-[11px] font-bold text-navy">0 payout requests</p>
+                                <p class="text-[9px] text-slate-500">Payouts feature coming soon</p>
                             </div>
                             <i class="fas fa-chevron-right text-slate-400 text-[10px]"></i>
                         </button>
@@ -616,7 +1120,7 @@
                                 <i class="fas fa-user-check text-white text-xs"></i>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-[11px] font-bold text-navy">8 KYC verifications</p>
+                                <p class="text-[11px] font-bold text-navy"><?= number_format($unverifiedUsers) ?> KYC verifications</p>
                                 <p class="text-[9px] text-slate-500">Identity documents</p>
                             </div>
                             <i class="fas fa-chevron-right text-slate-400 text-[10px]"></i>
@@ -626,8 +1130,8 @@
                                 <i class="fas fa-flag text-white text-xs"></i>
                             </div>
                             <div class="flex-1 min-w-0">
-                                <p class="text-[11px] font-bold text-navy">3 reported listings</p>
-                                <p class="text-[9px] text-slate-500">Flagged by users</p>
+                                <p class="text-[11px] font-bold text-navy">0 reported listings</p>
+                                <p class="text-[9px] text-slate-500">Reporting feature coming soon</p>
                             </div>
                             <i class="fas fa-chevron-right text-slate-400 text-[10px]"></i>
                         </button>
@@ -695,28 +1199,40 @@
                 </div>
             </div>
 
+            <!-- Support Message Volume Bubble Chart -->
+            <div class="bg-white rounded-2xl border border-slate-100 p-5 mb-5">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Support Message Volume</h3>
+                    <p class="text-[10px] text-slate-400">Senders left · Admins right · Bubble size = message count</p>
+                </div>
+                <div class="h-[400px]">
+                    <canvas id="supportBubbleChart"></canvas>
+                </div>
+            </div>
         </section>
 
 
         <!-- ================= USERS ================= -->
         <section id="admin-section-users" class="admin-section">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                <div>
-                    <h2 class="font-serif text-2xl text-navy font-semibold">User Management</h2>
-                    <p class="text-xs text-slate-400 mt-0.5">Manage all platform users — clients, owners, and companies</p>
-                </div>
-                <button onclick="showToast('Add user form opened')" class="bg-navy text-white text-xs font-bold px-4 py-2.5 rounded-lg hover:bg-accentBlue transition-colors flex items-center gap-2 self-start sm:self-center">
+                <button onclick="openUserModal('add')" class="bg-navy text-white text-xs font-bold px-4 py-2.5 rounded-lg hover:bg-accentBlue transition-colors flex items-center gap-2 self-start sm:self-center">
                     <i class="fas fa-plus"></i> Add User
                 </button>
             </div>
 
+            <?php if ($adminMessage): ?>
+                <div class="mb-4 p-3 rounded-lg text-xs font-medium <?= $adminMessageType === 'error' ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100' ?>" role="alert">
+                    <?= htmlspecialchars($adminMessage, ENT_QUOTES) ?>
+                </div>
+            <?php endif; ?>
+
             <!-- Filters -->
             <div class="flex flex-wrap gap-2 mb-4">
-                <button class="admin-tab active">All (1,248)</button>
-                <button class="admin-tab">Clients (892)</button>
-                <button class="admin-tab">Owners (241)</button>
-                <button class="admin-tab">Companies (115)</button>
-                <button class="admin-tab">Suspended (18)</button>
+                <button class="admin-tab active">All (<?= number_format($totalUsers) ?>)</button>
+                <button class="admin-tab">Clients (<?= number_format($roleCounts['client']) ?>)</button>
+                <button class="admin-tab">Owners (<?= number_format($roleCounts['owner']) ?>)</button>
+                <button class="admin-tab">Companies (<?= number_format($roleCounts['company']) ?>)</button>
+                <button class="admin-tab">Suspended (<?= number_format($suspendedCount) ?>)</button>
             </div>
 
             <!-- Search & bulk actions -->
@@ -758,138 +1274,76 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">JM</div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Jane Mwangi</p>
-                                            <p class="text-[9px] text-slate-400 truncate">jane.mwangi@email.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-accentBlue bg-accentBlue/10 px-2 py-0.5 rounded-full">Owner</span></td>
-                                <td class="text-slate-500">Nairobi</td>
-                                <td class="text-slate-500">Jan 12, 2024</td>
-                                <td><span class="status-badge status-active"><i class="fas fa-check-circle text-[7px]"></i>Active</span></td>
-                                <td class="font-bold">8</td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button onclick="showToast('Viewing Jane Mwangi')" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors" title="View">
-                                            <i class="fas fa-eye text-[10px]"></i>
-                                        </button>
-                                        <button onclick="showToast('Edit Jane Mwangi')" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors" title="Edit">
-                                            <i class="fas fa-pen text-[10px]"></i>
-                                        </button>
-                                        <button onclick="showToast('Suspend Jane Mwangi')" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Suspend">
-                                            <i class="fas fa-ban text-[10px]"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-accentBlue to-blue-700 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">DK</div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">David Kariuki</p>
-                                            <p class="text-[9px] text-slate-400 truncate">david.k@email.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">Client</span></td>
-                                <td class="text-slate-500">Nairobi</td>
-                                <td class="text-slate-500">Feb 3, 2024</td>
-                                <td><span class="status-badge status-active"><i class="fas fa-check-circle text-[7px]"></i>Active</span></td>
-                                <td class="font-bold">0</td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-adminPurple to-violet-700 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">PR</div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Prestige Realty Group</p>
-                                            <p class="text-[9px] text-slate-400 truncate">info@prestigerealty.co.ke</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-adminPurple bg-adminPurple/10 px-2 py-0.5 rounded-full">Company</span></td>
-                                <td class="text-slate-500">Nairobi</td>
-                                <td class="text-slate-500">Nov 8, 2023</td>
-                                <td><span class="status-badge status-active"><i class="fas fa-check-circle text-[7px]"></i>Active</span></td>
-                                <td class="font-bold">45</td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">SW</div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Sarah Wanjiku</p>
-                                            <p class="text-[9px] text-slate-400 truncate">sarah.w@email.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">Owner</span></td>
-                                <td class="text-slate-500">Kiambu</td>
-                                <td class="text-slate-500">Mar 15, 2024</td>
-                                <td><span class="status-badge status-pending"><i class="fas fa-clock text-[7px]"></i>Pending</span></td>
-                                <td class="font-bold">2</td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-red-500 to-red-700 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">FK</div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Fred Kimani</p>
-                                            <p class="text-[9px] text-slate-400 truncate">fred.k@email.com</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">Client</span></td>
-                                <td class="text-slate-500">Mombasa</td>
-                                <td class="text-slate-500">Apr 22, 2024</td>
-                                <td><span class="status-badge status-suspended"><i class="fas fa-ban text-[7px]"></i>Suspended</span></td>
-                                <td class="font-bold">0</td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors" title="Reactivate"><i class="fas fa-check text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
+                            <?php if (empty($adminUsers)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center py-10 text-slate-500 text-xs">No users found.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($adminUsers as $user): 
+                                    $name = $user['full_name'] ?? trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')) ?: $user['email'];
+                                    $initials = implode('', array_slice(array_map(fn($p) => strtoupper(substr($p,0,1)), explode(' ', $name)), 0, 2)) ?: 'U';
+                                    $avatar = !empty($user['avatar_url']) ? '<img src="' . htmlspecialchars($user['avatar_url'], ENT_QUOTES) . '" alt="Avatar" class="w-8 h-8 rounded-full object-cover flex-shrink-0">' : '<div class="w-8 h-8 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">' . htmlspecialchars($initials) . '</div>';
+                                    $role = $user['role'] ?? 'client';
+                                    $roleLabels = ['client' => 'Client', 'owner' => 'Owner', 'company' => 'Company', 'agency' => 'Agency'];
+                                    $roleColors = ['client' => 'text-slate-600 bg-slate-100', 'owner' => 'text-accentBlue bg-accentBlue/10', 'company' => 'text-adminPurple bg-adminPurple/10', 'agency' => 'text-accentOrange bg-accentOrange/10'];
+                                    $roleClass = $roleColors[$role] ?? $roleColors['client'];
+                                    $roleLabel = $roleLabels[$role] ?? ucfirst($role);
+                                    $isPending = !empty($user['first_login']) && (int)$user['first_login'] === 1;
+                                    $status = $isPending ? 'Pending' : 'Active';
+                                    $badgeClass = $isPending ? 'status-pending' : 'status-active';
+                                    $badgeIcon = $isPending ? 'fa-clock' : 'fa-check-circle';
+                                    $badgeTitle = $isPending ? 'Pending' : 'Active';
+                                    $joined = date('M d, Y', strtotime($user['created_at']));
+                                    $location = $user['location'] ?: '—';
+                                     $listings = (int)($user['listings_count'] ?? 0);
+                                 ?>
+                                    <tr data-user-id="<?= $user['id'] ?>">
+                                        <td><input type="checkbox" class="admin-checkbox"></td>
+                                        <td>
+                                            <div class="flex items-center gap-2">
+                                                <?= $avatar ?>
+                                                <div class="min-w-0">
+                                                    <p class="text-xs font-bold text-navy truncate"><?= htmlspecialchars($name, ENT_QUOTES) ?></p>
+                                                    <p class="text-[9px] text-slate-400 truncate"><?= htmlspecialchars($user['email'], ENT_QUOTES) ?></p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td><span class="text-[10px] font-semibold <?= $roleClass ?> px-2 py-0.5 rounded-full"><?= htmlspecialchars($roleLabel) ?></span></td>
+                                        <td class="text-slate-500"><?= htmlspecialchars($location) ?></td>
+                                        <td class="text-slate-500"><?= htmlspecialchars($joined) ?></td>
+                                        <td><span class="status-badge <?= $badgeClass ?>"><i class="fas <?= $badgeIcon ?> text-[7px]"></i><?= htmlspecialchars($badgeTitle) ?></span></td>
+                                        <td class="font-bold"><?= number_format($listings) ?></td>
+                                        <td class="text-right">
+                                            <div class="flex items-center justify-end gap-1">
+                                                <button onclick="openUserModal('view', <?= htmlspecialchars(json_encode($user), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors" title="View">
+                                                    <i class="fas fa-eye text-[10px]"></i>
+                                                </button>
+                                                <button onclick="openUserModal('edit', <?= htmlspecialchars(json_encode($user), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors" title="Edit">
+                                                    <i class="fas fa-pen text-[10px]"></i>
+                                                </button>
+                                                <?php if ($isPending): ?>
+                                                    <button onclick="openUserModal('activate', <?= htmlspecialchars(json_encode(['id' => $user['id'], 'name' => $name, 'email' => $user['email']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors" title="Activate">
+                                                        <i class="fas fa-check text-[10px]"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button onclick="openUserModal('suspend', <?= htmlspecialchars(json_encode(['id' => $user['id'], 'name' => $name, 'email' => $user['email']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Suspend">
+                                                        <i class="fas fa-ban text-[10px]"></i>
+                                                    </button>
+                                                <?php endif ?>
+                                                <button onclick="openUserModal('delete', <?= htmlspecialchars(json_encode(['id' => $user['id'], 'name' => $name, 'email' => $user['email']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="Delete">
+                                                    <i class="fas fa-trash text-[10px]"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
                 <!-- Pagination -->
                 <div class="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-                    <p class="text-[10px] text-slate-400">Showing <span class="font-bold text-navy">1-5</span> of <span class="font-bold text-navy">1,248</span> users</p>
+                    <p class="text-[10px] text-slate-400">Showing <span class="font-bold text-navy">1-<?= min(5, $totalUsers) ?></span> of <span class="font-bold text-navy"><?= number_format($totalUsers) ?></span> users</p>
                     <div class="flex gap-1">
                         <button class="w-7 h-7 flex items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:border-accentBlue hover:text-accentBlue transition-colors"><i class="fas fa-chevron-left text-[9px]"></i></button>
                         <button class="w-7 h-7 flex items-center justify-center rounded-md bg-navy text-white text-[10px] font-bold">1</button>
@@ -901,46 +1355,817 @@
             </div>
         </section>
 
+        <!-- ================= USER MODALS ================= -->
+        <!-- View User Modal -->
+        <div id="userModalView" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeUserModal('userModalView')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">View User</h3>
+                    <button onclick="closeUserModal('userModalView')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <div class="space-y-4" id="userViewContent">
+                    <!-- populated by JS -->
+                </div>
+                <div class="mt-6 flex justify-end">
+                    <button onclick="closeUserModal('userModalView')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit User Modal -->
+        <div id="userModalEdit" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeUserModal('userModalEdit')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Edit User</h3>
+                    <button onclick="closeUserModal('userModalEdit')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <form id="userEditForm" class="space-y-4" onsubmit="return saveUserEdit(event)">
+                    <input type="hidden" name="user_id" id="editUserId">
+                    <input type="hidden" name="action" value="update_role">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Full Name</label>
+                        <input type="text" id="editUserName" name="full_name" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" readonly>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Email</label>
+                        <input type="email" id="editUserEmail" name="email" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" readonly>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Role</label>
+                        <select name="role" id="editUserRole" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                            <option value="client">Client</option>
+                            <option value="owner">Owner</option>
+                            <option value="company">Company</option>
+                            <option value="agency">Agency</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center justify-between pt-2">
+                        <button type="button" onclick="closeUserModal('userModalEdit')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-accentBlue transition-colors">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Confirm Action Modal (Activate / Suspend / Delete) -->
+        <div id="userModalConfirm" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeUserModal('userModalConfirm')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 id="confirmModalTitle" class="font-serif text-lg text-navy font-semibold">Confirm Action</h3>
+                    <button onclick="closeUserModal('userModalConfirm')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <p id="confirmModalMessage" class="text-slate-600 text-sm mb-6">Are you sure?</p>
+                <input type="hidden" id="confirmUserId">
+                <input type="hidden" id="confirmAction">
+                <div class="flex items-center justify-end gap-2">
+                    <button onclick="closeUserModal('userModalConfirm')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                    <button id="confirmBtn" class="px-4 py-2 rounded-lg bg-accentBlue text-white text-xs font-medium hover:bg-accentOrange transition-colors">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add User Modal -->
+        <div id="userModalAdd" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeUserModal('userModalAdd')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Add User</h3>
+                    <button onclick="closeUserModal('userModalAdd')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <form id="userAddForm" class="space-y-4" onsubmit="return saveUserAdd(event)">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Full Name</label>
+                        <input type="text" name="full_name" placeholder="e.g. Jane Mwangi" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Email</label>
+                        <input type="email" name="email" placeholder="jane@example.com" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Phone</label>
+                        <input type="text" name="phone" placeholder="+254 700 000 000" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Role</label>
+                        <select name="role" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                            <option value="client">Client</option>
+                            <option value="owner">Owner</option>
+                            <option value="company">Company</option>
+                            <option value="agency">Agency</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center justify-end pt-2">
+                        <button type="button" onclick="closeUserModal('userModalAdd')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors mr-2">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-accentBlue transition-colors">Create User</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            function openUserModal(type, user) {
+                closeAllUserModals();
+                if (type === 'view') {
+                    const el = document.getElementById('userViewContent');
+                    const first = user.first_name || '';
+                    const last = user.last_name || '';
+                    const name = user.full_name || (first + ' ' + last).trim() || user.email;
+                    const roleLabels = { client: 'Client', owner: 'Owner', company: 'Company', agency: 'Agency' };
+                    const role = user.role || 'client';
+                    const isPending = user.first_login == 1;
+                    const avatarHtml = user.avatar_url
+                        ? '<img src="' + escapeHtml(user.avatar_url) + '" alt="Avatar" class="w-12 h-12 rounded-full object-cover">'
+                        : '<div class="w-12 h-12 rounded-full bg-gradient-to-br from-accentOrange to-orange-600 flex items-center justify-center text-white font-bold text-xs">' + escapeHtml((name.charAt(0) || 'U').toUpperCase()) + '</div>';
+                    el.innerHTML =
+                        '<div class="flex items-center gap-4 mb-2">' +
+                        avatarHtml +
+                        '<div class="flex-1 min-w-0"><p class="text-xs font-bold text-navy truncate">' + escapeHtml(name) + '</p><p class="text-[9px] text-slate-400 truncate">' + escapeHtml(user.email || '') + '</p></div>' +
+                        '</div>' +
+                        '<div class="grid grid-cols-2 gap-3 text-xs">' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Role</p><p class="font-semibold text-navy">' + escapeHtml(roleLabels[role] || role) + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Status</p><p class="font-semibold ' + (isPending ? 'text-amber-600' : 'text-emerald-600') + '">' + (isPending ? 'Pending' : 'Active') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Phone</p><p class="font-semibold text-slate-700 truncate">' + escapeHtml(user.profile_phone || user.phone || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Location</p><p class="font-semibold text-slate-700 truncate">' + escapeHtml(user.location || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Company</p><p class="font-semibold text-slate-700 truncate">' + escapeHtml(user.company_name || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Listings</p><p class="font-semibold text-navy">' + parseInt(user.listings_count || 0) + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Joined</p><p class="font-semibold text-slate-700">' + (user.created_at ? new Date(user.created_at).toLocaleDateString() : '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">ID</p><p class="font-semibold text-slate-700">#' + escapeHtml(user.id || '') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Verified</p><p class="font-semibold ' + (user.is_verified == 1 ? 'text-emerald-600' : 'text-slate-400') + '">' + (user.is_verified == 1 ? 'Yes' : 'No') + '</p></div>' +
+                        '</div>';
+                    document.getElementById('userModalView').classList.add('show');
+                } else if (type === 'edit') {
+                    document.getElementById('editUserId').value = user.id;
+                    document.getElementById('editUserName').value = user.full_name || ((user.first_name || '') + ' ' + (user.last_name || '')).trim() || user.email;
+                    document.getElementById('editUserEmail').value = user.email || '';
+                    document.getElementById('editUserRole').value = user.role || 'client';
+                    document.getElementById('userModalEdit').classList.add('show');
+                } else if (type === 'activate' || type === 'suspend' || type === 'delete') {
+                    document.getElementById('confirmModalTitle').textContent = type === 'delete' ? 'Delete User' : (type === 'activate' ? 'Activate User' : 'Suspend User');
+                    document.getElementById('confirmModalMessage').textContent = type === 'delete'
+                        ? 'Are you sure you want to delete "' + escapeHtml(user.name) + '"? This cannot be undone.'
+                        : 'Are you sure you want to ' + type + ' "' + escapeHtml(user.name) + '"?';
+                    document.getElementById('confirmUserId').value = user.id;
+                    document.getElementById('confirmAction').value = type;
+                    const btn = document.getElementById('confirmBtn');
+                    btn.className = 'px-4 py-2 rounded-lg text-xs font-medium';
+                    if (type === 'delete') btn.classList.add('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    else if (type === 'activate') btn.classList.add('bg-emerald-600', 'text-white', 'hover:bg-emerald-700');
+                    else btn.classList.add('bg-accentBlue', 'text-white', 'hover:bg-accentOrange');
+                    document.getElementById('userModalConfirm').classList.add('show');
+                } else if (type === 'add') {
+                    document.getElementById('userModalAdd').classList.add('show');
+                }
+            }
+
+            function closeUserModal(id) {
+                document.getElementById(id).classList.remove('show');
+            }
+
+            function closeAllUserModals() {
+                ['userModalView', 'userModalEdit', 'userModalConfirm', 'userModalAdd'].forEach(function(id) {
+                    document.getElementById(id).classList.remove('show');
+                });
+            }
+
+            function updateSidebarCounts(counts) {
+                const el = document.getElementById('sidebarUsersCount');
+                if (el) el.textContent = counts.totalUsers ? counts.totalUsers.toLocaleString() : el.textContent;
+                const elP = document.getElementById('sidebarPropertiesCount');
+                if (elP) elP.textContent = counts.totalProperties ? counts.totalProperties.toLocaleString() : elP.textContent;
+                const elA = document.getElementById('sidebarAgenciesCount');
+                if (elA) elA.textContent = counts.totalAgencies ? counts.totalAgencies.toLocaleString() : elA.textContent;
+            }
+
+            function handleApiResponse(result, rowIdAttr, rowIdValue) {
+                if (result.success) {
+                    if (result.counts) {
+                        updateSidebarCounts(result.counts);
+                    }
+                    showToast(result.message || 'Done.');
+                    if (rowIdAttr && rowIdValue) {
+                        const row = document.querySelector('[' + rowIdAttr + '="' + rowIdValue + '"]');
+                        if (row) {
+                            row.style.opacity = '0';
+                            setTimeout(function() { row.remove(); }, 300);
+                        }
+                    }
+                } else {
+                    showToast(result.message || 'Error occurred.');
+            }
+        };
+
+            function saveUserEdit(e) {
+                e.preventDefault();
+                const form = document.getElementById('userEditForm');
+                const formData = new FormData(form);
+                fetch('admin.php', {
+                    method: 'POST',
+                    body: formData
+                }).then(function(r) { return r.json(); }).then(function(result) {
+                    handleApiResponse(result, null, null);
+                    if (result.success) closeUserModal('userModalEdit');
+                });
+                return false;
+            }
+
+            function saveUserAdd(e) {
+                e.preventDefault();
+                const form = document.getElementById('userAddForm');
+                const formData = new FormData(form);
+                formData.append('action', 'create');
+                fetch('admin.php', {
+                    method: 'POST',
+                    body: formData
+                }).then(function(r) { return r.json(); }).then(function(result) {
+                    handleApiResponse(result, null, null);
+                    if (result.success) closeUserModal('userModalAdd');
+                });
+                return false;
+            }
+
+            function escapeHtml(text) {
+                if (text == null) return '';
+                return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+            }
+
+            function openPropertyModal(type, prop) {
+                closeAllPropertyModals();
+                if (type === 'view') {
+                    const el = document.getElementById('propViewContent');
+                    const typeLabels = { rent: 'For Rent', sale: 'For Sale', booking: 'Short Stay' };
+                    const type = prop.type || 'rent';
+                    const isActive = prop.is_active == 1;
+                    const status = isActive ? 'Active' : 'Pending';
+                    const imageHtml = prop.image_url
+                        ? '<img src="' + escapeHtml(prop.image_url) + '" alt="Property" class="w-16 h-16 rounded-xl object-cover">'
+                        : '<div class="w-16 h-16 rounded-xl bg-gradient-to-br from-accentBlue to-accentOrange flex items-center justify-center text-white font-bold text-xs"><i class="fas fa-building"></i></div>';
+                    el.innerHTML =
+                        '<div class="flex items-center gap-4 mb-2">' +
+                        imageHtml +
+                        '<div class="flex-1 min-w-0"><p class="text-xs font-bold text-navy truncate">' + escapeHtml(prop.title) + '</p><p class="text-[9px] text-slate-400 truncate">' + escapeHtml(prop.location) + '</p></div>' +
+                        '</div>' +
+                        '<div class="grid grid-cols-2 gap-3 text-xs">' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Type</p><p class="font-semibold text-navy">' + escapeHtml(typeLabels[type] || type) + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Status</p><p class="font-semibold ' + (isActive ? 'text-emerald-600' : 'text-amber-600') + '">' + escapeHtml(status) + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Price</p><p class="font-semibold text-navy">KSh ' + escapeHtml(prop.price) + ' ' + escapeHtml(prop.price_suffix || '') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Owner</p><p class="font-semibold text-slate-700 truncate">' + escapeHtml(prop.company_name || prop.first_name || prop.email || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Beds</p><p class="font-semibold text-slate-700">' + escapeHtml(prop.beds || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Baths</p><p class="font-semibold text-slate-700">' + escapeHtml(prop.baths || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Size</p><p class="font-semibold text-slate-700">' + escapeHtml(prop.size || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Submitted</p><p class="font-semibold text-slate-700">' + (prop.created_at ? new Date(prop.created_at).toLocaleDateString() : '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">ID</p><p class="font-semibold text-slate-700">#' + escapeHtml(prop.id || '') + '</p></div>' +
+                        '</div>' +
+                        (prop.description ? '<div class="mt-4"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Description</p><p class="text-slate-600 text-xs leading-relaxed">' + escapeHtml(prop.description) + '</p></div>' : '');
+                    document.getElementById('propModalView').classList.add('show');
+                } else if (type === 'edit') {
+                    document.getElementById('editPropId').value = prop.id;
+                    document.getElementById('editPropTitle').value = prop.title || '';
+                    document.getElementById('editPropLocation').value = prop.location || '';
+                    document.getElementById('editPropPrice').value = prop.price || '';
+                    document.getElementById('editPropType').value = prop.type || 'rent';
+                    document.getElementById('editPropIsActive').checked = prop.is_active == 1;
+                    document.getElementById('propModalEdit').classList.add('show');
+                } else if (type === 'approve' || type === 'reject' || type === 'delete_prop') {
+                    document.getElementById('propConfirmTitle').textContent = type === 'delete_prop' ? 'Delete Property' : (type === 'approve' ? 'Approve Property' : 'Reject Property');
+                    document.getElementById('propConfirmMessage').textContent = type === 'delete_prop'
+                        ? 'Are you sure you want to delete "' + escapeHtml(prop.title) + '"? This cannot be undone.'
+                        : 'Are you sure you want to ' + (type === 'approve' ? 'approve' : 'reject') + ' "' + escapeHtml(prop.title) + '"?';
+                    document.getElementById('propConfirmPropId').value = prop.id;
+                    document.getElementById('propConfirmAction').value = type;
+                    const btn = document.getElementById('propConfirmBtn');
+                    btn.className = 'px-4 py-2 rounded-lg text-xs font-medium';
+                    if (type === 'delete_prop') btn.classList.add('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    else if (type === 'approve') btn.classList.add('bg-emerald-600', 'text-white', 'hover:bg-emerald-700');
+                    else btn.classList.add('bg-accentBlue', 'text-white', 'hover:bg-accentOrange');
+                    document.getElementById('propModalConfirm').classList.add('show');
+                } else if (type === 'add') {
+                    document.getElementById('propModalAdd').classList.add('show');
+                }
+            }
+
+            function closePropertyModal(id) {
+                document.getElementById(id).classList.remove('show');
+            }
+
+            function closeAllPropertyModals() {
+                ['propModalView', 'propModalEdit', 'propModalConfirm', 'propModalAdd'].forEach(function(id) {
+                    document.getElementById(id).classList.remove('show');
+                });
+            }
+
+            document.addEventListener('DOMContentLoaded', function() {
+                document.getElementById('confirmBtn').onclick = function() {
+                    const action = document.getElementById('confirmAction').value;
+                    const userId = document.getElementById('confirmUserId').value;
+                    closeUserModal('userModalConfirm');
+                    fetch('admin.php', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'action=' + encodeURIComponent(action) + '&user_id=' + encodeURIComponent(userId)
+                    }).then(function(r) { return r.json(); }).then(function(result) {
+                        handleApiResponse(result, 'data-user-id', userId);
+                    });
+                };
+                document.getElementById('propConfirmBtn').onclick = function() {
+                    const action = document.getElementById('propConfirmAction').value;
+                    const propId = document.getElementById('propConfirmPropId').value;
+                    closePropertyModal('propModalConfirm');
+                    fetch('admin.php', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'action=' + encodeURIComponent(action) + '&prop_id=' + encodeURIComponent(propId)
+                    }).then(function(r) { return r.json(); }).then(function(result) {
+                        handleApiResponse(result, 'data-prop-id', propId);
+                    }).catch(function(err) {
+                        showToast('Request failed: ' + err.message);
+                    });
+                };
+                document.getElementById('agencyConfirmBtn').onclick = function() {
+                    const action = document.getElementById('agencyConfirmAction').value;
+                    const agencyId = document.getElementById('agencyConfirmPropId').value;
+                    closeAgencyModal('agencyModalConfirm');
+                    fetch('admin.php', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'action=' + encodeURIComponent(action) + '&prop_id=' + encodeURIComponent(agencyId)
+                    }).then(function(r) { return r.json(); }).then(function(result) {
+                        handleApiResponse(result, 'data-agency-id', agencyId);
+                    });
+                };
+                document.getElementById('deleteBookingConfirmBtn').onclick = function() {
+                    const bookingId = document.getElementById('deleteBookingId').value;
+                    closeBookingModal('bookingModalDelete');
+                    fetch('admin.php', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'action=delete_booking&booking_id=' + encodeURIComponent(bookingId)
+                    }).then(function(r) { return r.json(); }).then(function(result) {
+                        handleApiResponse(result, 'data-booking-id', bookingId);
+                    }).catch(function(err) {
+                        showToast('Request failed: ' + err.message);
+                    });
+                };
+            });
+
+            function savePropertyEdit(e) {
+                e.preventDefault();
+                const form = document.getElementById('propEditForm');
+                const formData = new FormData(form);
+                formData.append('action', 'update_prop');
+                fetch('admin.php', {
+                    method: 'POST',
+                    body: formData
+                }).then(function(r) { return r.json(); }).then(function(result) {
+                    handleApiResponse(result, null, null);
+                    if (result.success) closePropertyModal('propModalEdit');
+                });
+                return false;
+            }
+
+            function savePropertyAdd(e) {
+                e.preventDefault();
+                const form = document.getElementById('propAddForm');
+                const formData = new FormData(form);
+                formData.append('action', 'create_prop');
+                fetch('admin.php', {
+                    method: 'POST',
+                    body: formData
+                }).then(function(r) { return r.json(); }).then(function(result) {
+                    handleApiResponse(result, null, null);
+                    if (result.success) closePropertyModal('propModalAdd');
+                });
+                return false;
+            }
+
+            function openAgencyModal(type, agency) {
+                closeAllAgencyModals();
+                if (type === 'view') {
+                    const el = document.getElementById('agencyViewContent');
+                    const categoryLabels = { agency: 'Real Estate Agency', property_mgmt: 'Property Management', cleaning: 'Cleaning' };
+                    const cat = agency.category || 'agency';
+                    const isActive = agency.is_active == 1;
+                    const isVerified = agency.verified == 1;
+                    const status = isActive ? 'Active' : 'Suspended';
+                    const logoHtml = agency.logo
+                        ? '<img src="' + escapeHtml(agency.logo) + '" alt="Logo" class="w-16 h-16 rounded object-cover">'
+                        : '<div class="w-16 h-16 rounded-lg bg-gradient-to-br from-adminPurple to-adminOrange flex items-center justify-center text-white font-bold text-xs"><i class="fas fa-building"></i></div>';
+                    el.innerHTML =
+                        '<div class="flex items-center gap-4 mb-2">' +
+                        logoHtml +
+                        '<div class="flex-1 min-w-0"><p class="text-xs font-bold text-navy truncate">' + escapeHtml(agency.name) + '</p><p class="text-[9px] text-slate-400 truncate">' + escapeHtml(agency.email) + '</p></div>' +
+                        '</div>' +
+                        '<div class="grid grid-cols-2 gap-3 text-xs">' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Category</p><p class="font-semibold text-navy">' + escapeHtml(categoryLabels[cat] || cat) + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Status</p><p class="font-semibold ' + (isActive ? 'text-emerald-600' : 'text-red-600') + '">' + escapeHtml(status) + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Verified</p><p class="font-semibold ' + (isVerified ? 'text-emerald-600' : 'text-amber-600') + '">' + (isVerified ? 'Yes' : 'No') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Location</p><p class="font-semibold text-slate-700 truncate">' + escapeHtml(agency.location) + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Rating</p><p class="font-semibold text-navy">' + escapeHtml(agency.rating) + ' <i class="fas fa-star"></i></p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Phone</p><p class="font-semibold text-slate-700 truncate">' + escapeHtml(agency.phone || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Website</p><p class="font-semibold text-slate-700 truncate">' + escapeHtml(agency.website || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Clients</p><p class="font-semibold text-slate-700">' + escapeHtml(agency.clients || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Satisfaction</p><p class="font-semibold text-slate-700">' + escapeHtml(agency.satisfaction || '—') + '</p></div>' +
+                        '<div class="p-3 rounded-lg bg-slate-50"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">ID</p><p class="font-semibold text-slate-700">#' + escapeHtml(agency.id || '') + '</p></div>' +
+                        '</div>' +
+                        (agency.short_desc ? '<div class="mt-4"><p class="text-[9px] text-slate-400 uppercase font-bold mb-1">Description</p><p class="text-slate-600 text-xs leading-relaxed">' + escapeHtml(agency.short_desc) + '</p></div>' : '');
+                    document.getElementById('agencyModalView').classList.add('show');
+                } else if (type === 'edit') {
+                    document.getElementById('editAgencyId').value = agency.id;
+                    document.getElementById('editAgencyName').value = agency.name || '';
+                    document.getElementById('editAgencyLocation').value = agency.location || '';
+                    document.getElementById('editAgencyCategory').value = agency.category || 'agency';
+                    document.getElementById('editAgencyRating').value = agency.rating || '0';
+                    document.getElementById('editAgencyPhone').value = agency.phone || '';
+                    document.getElementById('editAgencyEmail').value = agency.email || '';
+                    document.getElementById('editAgencyLogo').value = agency.logo || '';
+                    document.getElementById('editAgencyIsActive').checked = agency.is_active == 1;
+                    document.getElementById('editAgencyVerified').checked = agency.verified == 1;
+                    document.getElementById('agencyModalEdit').classList.add('show');
+                } else if (type === 'verify' || type === 'unverify' || type === 'activate_agency' || type === 'suspend_agency' || type === 'delete_agency') {
+                    const isVerify = type === 'verify' || type === 'unverify';
+                    document.getElementById('agencyConfirmTitle').textContent = isVerify ? (type === 'verify' ? 'Verify Agency' : 'Unverify Agency') : (type === 'delete_agency' ? 'Delete Agency' : (type === 'activate_agency' ? 'Activate Agency' : 'Suspend Agency'));
+                    document.getElementById('agencyConfirmMessage').textContent = type === 'delete_agency'
+                        ? 'Are you sure you want to delete "' + escapeHtml(agency.name) + '"? This cannot be undone.'
+                        : (isVerify ? 'Are you sure you want to ' + (type === 'verify' ? 'verify' : 'unverify') + ' "' + escapeHtml(agency.name) + '"?'
+                        : 'Are you sure you want to ' + (type === 'activate_agency' ? 'activate' : 'suspend') + ' "' + escapeHtml(agency.name) + '"?');
+                    document.getElementById('agencyConfirmPropId').value = agency.id;
+                    document.getElementById('agencyConfirmAction').value = type;
+                    const btn = document.getElementById('agencyConfirmBtn');
+                    btn.className = 'px-4 py-2 rounded-lg text-xs font-medium';
+                    if (type === 'delete_agency') btn.classList.add('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    else if (type === 'verify') btn.classList.add('bg-emerald-600', 'text-white', 'hover:bg-emerald-700');
+                    else if (type === 'unverify') btn.classList.add('bg-red-600', 'text-white', 'hover:bg-red-700');
+                    else if (type === 'activate_agency') btn.classList.add('bg-emerald-600', 'text-white', 'hover:bg-emerald-700');
+                    else btn.classList.add('bg-accentBlue', 'text-white', 'hover:bg-accentOrange');
+                    document.getElementById('agencyModalConfirm').classList.add('show');
+                } else if (type === 'add') {
+                    document.getElementById('agencyModalAdd').classList.add('show');
+                }
+            }
+
+            function closeAgencyModal(id) {
+                document.getElementById(id).classList.remove('show');
+            }
+
+            function closeAllAgencyModals() {
+                ['agencyModalView', 'agencyModalEdit', 'agencyModalConfirm', 'agencyModalAdd'].forEach(function(id) {
+                    document.getElementById(id).classList.remove('show');
+                });
+            }
+
+            function saveAgencyEdit(e) {
+                e.preventDefault();
+                const form = document.getElementById('agencyEditForm');
+                const formData = new FormData(form);
+                formData.append('action', 'update_agency');
+                fetch('admin.php', {
+                    method: 'POST',
+                    body: formData
+                }).then(function(r) { return r.json(); }).then(function(result) {
+                    handleApiResponse(result, null, null);
+                    if (result.success) closeAgencyModal('agencyModalEdit');
+                });
+                return false;
+            }
+
+            function saveAgencyAdd(e) {
+                e.preventDefault();
+                const form = document.getElementById('agencyAddForm');
+                const formData = new FormData(form);
+                formData.append('action', 'create_agency');
+                fetch('admin.php', {
+                    method: 'POST',
+                    body: formData
+                }).then(function(r) { return r.json(); }).then(function(result) {
+                    handleApiResponse(result, null, null);
+                    if (result.success) closeAgencyModal('agencyModalAdd');
+                });
+                return false;
+            }
+
+            /* ===== SUPPORT CHAT AJAX ===== */
+            let currentSupportContactId = null;
+            let supportMessagesContainer = null;
+
+            function loadSupportConversations() {
+                const search = document.getElementById('supportSearchInput') ? document.getElementById('supportSearchInput').value : '';
+                fetch('admin.php?ajax=support_conversations&search=' + encodeURIComponent(search))
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        // Update sidebar badge
+                        const sidebarBadge = document.getElementById('sidebarSupportCount');
+                        if (sidebarBadge && data.success && data.conversations) {
+                            sidebarBadge.textContent = data.conversations.length.toLocaleString();
+                        }
+                        const container = document.getElementById('supportConversationList');
+                        if (!data.success || !data.conversations || data.conversations.length === 0) {
+                            container.innerHTML = '<div class="p-6 text-center text-slate-400 text-xs">No conversations found.</div>';
+                            return;
+                        }
+                        container.innerHTML = data.conversations.map(function(c) {
+                            const initials = c.name.split(' ').map(function(n) { return n.charAt(0); }).join('').toUpperCase().slice(0, 2) || 'U';
+                            const isActive = currentSupportContactId == c.id ? 'bg-[#005BB5]/10 border-[#005BB5]' : 'bg-slate-50 border-transparent';
+                            return '<div class="p-2.5 rounded-lg border border-transparent ' + isActive + ' cursor-pointer hover:bg-[#F3F4F6] transition-colors" onclick="openSupportConversation(' + c.id + ', \'' + escapeHtml(c.name) + '\', \'' + escapeHtml(c.avatar_color) + '\')">' +
+                                '<div class="flex items-center justify-between gap-2">' +
+                                '<div class="flex items-center gap-2">' +
+                                '<div class="w-8 h-8 rounded-full bg-[#' + c.avatar_color + '] flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">' + initials + '</div>' +
+                                '<div class="min-w-0 flex-1">' +
+                                '<p class="text-xs font-bold text-navy truncate">' + escapeHtml(c.name) + '</p>' +
+                                '<p class="text-[9px] text-slate-500 truncate line-clamp-1">' + escapeHtml(c.last_message) + '</p>' +
+                                '</div>' +
+                                '</div>' +
+                                '<div class="text-right">' +
+                                '<p class="text-[9px] text-slate-400 font-medium">' + c.time + '</p>' +
+                                (c.unread > 0 ? '<span class="w-2 h-2 rounded-full bg-[#005BB5] inline-block mt-0.5"></span>' : '') +
+                                '</div>' +
+                                '</div>' +
+                                '</div>';
+                        }).join('');
+                    });
+            }
+
+            function openSupportConversation(id, name, avatarColor) {
+                currentSupportContactId = id;
+                document.getElementById('supportContactAvatar').textContent = name.split(' ').map(function(n) { return n.charAt(0); }).join('').toUpperCase().slice(0, 2) || 'U';
+                document.getElementById('supportContactAvatar').parentElement.style.backgroundColor = '#' + avatarColor;
+                document.getElementById('supportContactName').textContent = name;
+                document.getElementById('supportChatEmpty').classList.add('hidden');
+                document.getElementById('supportChatView').classList.remove('hidden');
+                document.getElementById('supportMessagesContainer').innerHTML = '<div class="p-4 text-center text-slate-400 text-xs">Loading messages…</div>';
+                loadSupportMessages(id);
+                loadSupportConversations();
+            }
+
+            function goBackToConversations() {
+                currentSupportContactId = null;
+                document.getElementById('supportChatEmpty').classList.remove('hidden');
+                document.getElementById('supportChatView').classList.add('hidden');
+                loadSupportConversations();
+            }
+
+            function loadSupportMessages(contactId) {
+                fetch('admin.php?ajax=support_messages&contact_id=' + contactId)
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        const container = document.getElementById('supportMessagesContainer');
+                        if (!data.success || !data.messages || data.messages.length === 0) {
+                            container.innerHTML = '<div class="p-6 text-center text-slate-400 text-xs">No messages yet.</div>';
+                            return;
+                        }
+                        container.innerHTML = data.messages.map(function(m) {
+                            const isAdmin = m.is_admin == 1;
+                            return '<div class="flex ' + (isAdmin ? 'justify-end' : 'justify-start') + ' mb-1">' +
+                                '<div class="max-w-[80%] ' + (isAdmin ? 'bg-[#005BB5] text-white rounded-2xl rounded-tl-sm px-3 py-2.5 shadow-sm' : 'bg-white rounded-2xl rounded-tr-sm px-3 py-2.5 shadow-sm border border-slate-100') + '">' +
+                                '<p class="text-[11px] leading-relaxed">' + escapeHtml(m.message) + '</p>' +
+                                '<span class="text-[8px] ' + (isAdmin ? 'text-[#0B3D91]' : 'text-slate-400') + ' mt-1 block ' + (isAdmin ? 'text-right' : '') + '">' + m.time + '</span>' +
+                                '</div>' +
+                                '</div>';
+                        }).join('');
+                        container.scrollTop = container.scrollHeight;
+                    });
+            }
+
+            function sendSupportReply() {
+                const input = document.getElementById('supportReplyInput');
+                if (!input.value.trim() || !currentSupportContactId) return;
+                const text = input.value.trim();
+                input.value = '';
+                fetch('admin.php', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: 'action=send_support_message&contact_id=' + encodeURIComponent(currentSupportContactId) + '&message=' + encodeURIComponent(text)
+                }).then(function(r) { return r.json(); }).then(function(result) {
+                    if (result.success) {
+                        loadSupportMessages(currentSupportContactId);
+                        loadSupportConversations();
+                    }
+                });
+            }
+
+            document.getElementById('supportSearchInput')?.addEventListener('input', function() {
+                loadSupportConversations();
+            });
+
+            /* ===== BOOKING MODAL ===== */
+            function openBookingModal(type, booking) {
+                closeAllBookingModals();
+                if (type === 'view') {
+                    document.getElementById('viewBookingId').textContent = '#HV-' + String(booking.id).padStart(4, '0');
+                    document.getElementById('viewBookingTitle').textContent = booking.title || '—';
+                    document.getElementById('viewBookingLocation').textContent = booking.location || '—';
+                    document.getElementById('viewBookingClientName').textContent = booking.client_name || '—';
+                    document.getElementById('viewBookingClientEmail').textContent = booking.client_email || '—';
+                    document.getElementById('viewBookingClientPhone').textContent = booking.client_phone || '—';
+                    document.getElementById('viewBookingClientLocation').textContent = booking.client_location || '—';
+                    document.getElementById('viewBookingOwnerName').textContent = booking.owner_name || '—';
+                    document.getElementById('viewBookingOwnerEmail').textContent = booking.owner_email || '—';
+                    document.getElementById('viewBookingPropertyType').textContent = booking.property_type || '—';
+                    document.getElementById('viewBookingDescription').textContent = booking.description || '—';
+                    document.getElementById('viewBookingStatus').textContent = booking.is_active == 1 ? 'Active' : 'Inactive';
+                    document.getElementById('viewBookingCreated').textContent = booking.created_at ? new Date(booking.created_at).toLocaleDateString() : '—';
+                    document.getElementById('bookingModalView').classList.add('show');
+                } else if (type === 'edit') {
+                    document.getElementById('editBookingId').value = booking.id;
+                    document.getElementById('editBookingTitle').value = booking.title || '';
+                    document.getElementById('bookingModalEdit').classList.add('show');
+                } else if (type === 'delete') {
+                    document.getElementById('deleteBookingTitle').textContent = 'Delete Booking';
+                    document.getElementById('deleteBookingMessage').textContent = 'Are you sure you want to delete "' + escapeHtml(booking.title) + '"? This cannot be undone.';
+                    document.getElementById('deleteBookingId').value = booking.id;
+                    document.getElementById('bookingModalDelete').classList.add('show');
+                }
+            }
+
+            function closeBookingModal(id) {
+                document.getElementById(id).classList.remove('show');
+            }
+
+            function closeAllBookingModals() {
+                ['bookingModalView', 'bookingModalEdit', 'bookingModalDelete'].forEach(function(id) {
+                    document.getElementById(id).classList.remove('show');
+                });
+            }
+
+            function loadBookingConnections() {
+                fetch('admin.php?ajax=booking_connections')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        const container = document.getElementById('connectionsTableBody');
+                        if (!data.success || !data.connections || data.connections.length === 0) {
+                            container.innerHTML = '<tr><td colspan="7" class="p-6 text-center text-slate-400 text-xs">No connections found.</td></tr>';
+                            return;
+                        }
+                        container.innerHTML = data.connections.map(function(c) {
+                            return '<tr>' +
+                                '<td class="text-[10px] font-semibold text-navy">' + c.client_name + '</td>' +
+                                '<td class="text-[10px] text-slate-500 truncate" title="' + c.client_email + '">' + c.client_email + '</td>' +
+                                '<td class="text-[10px] font-semibold text-navy">' + c.owner_name + '</td>' +
+                                '<td class="text-[10px] text-slate-500 truncate" title="' + c.owner_email + '">' + c.owner_email + '</td>' +
+                                '<td class="text-[10px] font-bold text-accentBlue">' + c.message_count + '</td>' +
+                                '<td class="text-[10px] text-slate-500">—</td>' +
+                                '<td class="text-right"><button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors" title="View"><i class="fas fa-eye text-[10px]"></i></button></td>' +
+                                '</tr>';
+                        }).join('');
+                    });
+            }
+        </script>
+
+        <!-- ================= PROPERTY MODALS ================= -->
+        <!-- View Property Modal -->
+        <div id="propModalView" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closePropertyModal('propModalView')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">View Property</h3>
+                    <button onclick="closePropertyModal('propModalView')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <div class="space-y-4" id="propViewContent"></div>
+                <div class="mt-6 flex justify-end">
+                    <button onclick="closePropertyModal('propModalView')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Property Modal -->
+        <div id="propModalEdit" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closePropertyModal('propModalEdit')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Edit Property</h3>
+                    <button onclick="closePropertyModal('propModalEdit')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <form id="propEditForm" class="space-y-4" onsubmit="return savePropertyEdit(event)">
+                    <input type="hidden" name="prop_id" id="editPropId">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Title</label>
+                        <input type="text" name="title" id="editPropTitle" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Location</label>
+                        <input type="text" name="location" id="editPropLocation" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Price</label>
+                        <input type="number" name="price" id="editPropPrice" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Type</label>
+                        <select name="type" id="editPropType" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                            <option value="rent">For Rent</option>
+                            <option value="sale">For Sale</option>
+                            <option value="booking">Short Stay</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" name="is_active" id="editPropIsActive" class="admin-checkbox">
+                        <label for="editPropIsActive" class="text-xs text-slate-600">Active / Published</label>
+                    </div>
+                    <div class="flex items-center justify-end pt-2">
+                        <button type="button" onclick="closePropertyModal('propModalEdit')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors mr-2">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-accentBlue transition-colors">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Confirm Action Modal (Approve / Reject / Delete) -->
+        <div id="propModalConfirm" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closePropertyModal('propModalConfirm')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 id="propConfirmTitle" class="font-serif text-lg text-navy font-semibold">Confirm Action</h3>
+                    <button onclick="closePropertyModal('propModalConfirm')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <p id="propConfirmMessage" class="text-slate-600 text-sm mb-6">Are you sure?</p>
+                <input type="hidden" id="propConfirmPropId">
+                <input type="hidden" id="propConfirmAction">
+                <div class="flex items-center justify-end gap-2">
+                    <button onclick="closePropertyModal('propModalConfirm')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                    <button id="propConfirmBtn" class="px-4 py-2 rounded-lg bg-accentBlue text-white text-xs font-medium hover:bg-accentOrange transition-colors">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Property Modal -->
+        <div id="propModalAdd" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closePropertyModal('propModalAdd')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Add Property</h3>
+                    <button onclick="closePropertyModal('propModalAdd')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <form id="propAddForm" class="space-y-4" onsubmit="return savePropertyAdd(event)">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Title</label>
+                        <input type="text" name="title" placeholder="e.g. Modern 3 Bed Villa" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Location</label>
+                        <input type="text" name="location" placeholder="e.g. Kilimani, Nairobi" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Price (KSh)</label>
+                        <input type="number" name="price" placeholder="150000" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Type</label>
+                        <select name="type" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                            <option value="rent">For Rent</option>
+                            <option value="sale">For Sale</option>
+                            <option value="booking">Short Stay</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center justify-end pt-2">
+                        <button type="button" onclick="closePropertyModal('propModalAdd')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors mr-2">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-accentBlue transition-colors">Create Property</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <!-- ================= PROPERTIES ================= -->
         <section id="admin-section-properties" class="admin-section">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                <div>
-                    <h2 class="font-serif text-2xl text-navy font-semibold">Property Management</h2>
-                    <p class="text-xs text-slate-400 mt-0.5">Review, approve, and manage all listings</p>
-                </div>
                 <div class="flex gap-2">
                     <button onclick="showToast('Bulk actions opened')" class="border border-slate-200 text-slate-600 text-xs font-semibold px-4 py-2.5 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2">
                         <i class="fas fa-tasks"></i> Bulk Actions
                     </button>
-                    <button onclick="showToast('Add property form opened')" class="bg-navy text-white text-xs font-bold px-4 py-2.5 rounded-lg hover:bg-accentBlue transition-colors flex items-center gap-2">
+                    <button onclick="openPropertyModal('add')" class="bg-navy text-white text-xs font-bold px-4 py-2.5 rounded-lg hover:bg-accentBlue transition-colors flex items-center gap-2">
                         <i class="fas fa-plus"></i> Add Property
                     </button>
-                </div>
             </div>
+        </div>
 
-            <div class="flex flex-wrap gap-2 mb-4">
-                <button class="admin-tab active">All (2,847)</button>
-                <button class="admin-tab">Pending (12)</button>
-                <button class="admin-tab">Active (2,745)</button>
-                <button class="admin-tab">Draft (58)</button>
-                <button class="admin-tab">Suspended (20)</button>
-                <button class="admin-tab">Reported (3)</button>
+        <?php if ($adminMessage): ?>
+            <div class="mb-4 p-3 rounded-lg text-xs font-medium <?= $adminMessageType === 'error' ? 'bg-red-50 text-red-700 border border-red-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100' ?>" role="alert">
+                <?= htmlspecialchars($adminMessage, ENT_QUOTES) ?>
             </div>
+        <?php endif; ?>
 
-            <!-- Pending approval banner -->
-            <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
-                <div class="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
-                    <i class="fas fa-exclamation-triangle text-white text-sm"></i>
-                </div>
-                <div class="flex-1">
-                    <p class="text-xs font-bold text-navy">12 properties are awaiting your approval</p>
-                    <p class="text-[10px] text-slate-500 mt-0.5">New listings submitted by owners and agencies. Review them to publish on the platform.</p>
-                </div>
-                <button onclick="showToast('Reviewing pending properties')" class="bg-amber-500 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-amber-600 transition-colors whitespace-nowrap">
-                    Review Now
-                </button>
+        <div class="flex flex-wrap gap-2 mb-4">
+            <button class="admin-tab active">All (<?= number_format($propStatusCounts['all']) ?>)</button>
+            <button class="admin-tab">Pending (<?= number_format($propStatusCounts['pending']) ?>)</button>
+            <button class="admin-tab">Active (<?= number_format($propStatusCounts['active']) ?>)</button>
+            <button class="admin-tab">Draft (<?= number_format($propStatusCounts['draft']) ?>)</button>
+            <button class="admin-tab">Suspended (<?= number_format($propStatusCounts['suspended']) ?>)</button>
+            <button class="admin-tab">Reported (<?= number_format($propStatusCounts['reported']) ?>)</button>
+        </div>
+
+        <!-- Pending approval banner -->
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
+            <div class="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
+                <i class="fas fa-exclamation-triangle text-white text-sm"></i>
             </div>
+            <div class="flex-1">
+                <p class="text-xs font-bold text-navy"><?= number_format($propStatusCounts['pending']) ?> properties are awaiting your approval</p>
+                <p class="text-[10px] text-slate-500 mt-0.5">New listings submitted by owners and agencies. Review them to publish on the platform.</p>
+            </div>
+            <button onclick="showToast('Reviewing pending properties')" class="bg-amber-500 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-amber-600 transition-colors whitespace-nowrap">
+                Review Now
+            </button>
+        </div>
 
             <!-- Properties table -->
             <div class="bg-white rounded-2xl border border-slate-100 overflow-hidden">
@@ -959,137 +2184,73 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=100&q=80" alt="Property" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Modern 3 Bed Villa</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Kilimani, Nairobi</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-accentBlue bg-accentBlue/10 px-2 py-0.5 rounded-full">For Rent</span></td>
-                                <td class="text-slate-500 text-[10px]">Prestige Realty</td>
-                                <td class="font-bold">KSh 150K</td>
-                                <td class="text-slate-500 text-[10px]">2h ago</td>
-                                <td><span class="status-badge status-pending"><i class="fas fa-clock text-[7px]"></i>Pending</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button onclick="showToast('Approving property')" class="w-7 h-7 flex items-center justify-center rounded-md text-emerald-500 hover:bg-emerald-50 transition-colors" title="Approve">
-                                            <i class="fas fa-check text-[10px]"></i>
-                                        </button>
-                                        <button onclick="showToast('Rejecting property')" class="w-7 h-7 flex items-center justify-center rounded-md text-red-500 hover:bg-red-50 transition-colors" title="Reject">
-                                            <i class="fas fa-times text-[10px]"></i>
-                                        </button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors" title="View">
-                                            <i class="fas fa-eye text-[10px]"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=100&q=80" alt="Property" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Spacious Family Home</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Karen, Nairobi</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-adminGreen bg-adminGreen/10 px-2 py-0.5 rounded-full">For Rent</span></td>
-                                <td class="text-slate-500 text-[10px]">Jane Mwangi</td>
-                                <td class="font-bold">KSh 200K</td>
-                                <td class="text-slate-500 text-[10px]">5h ago</td>
-                                <td><span class="status-badge status-active"><i class="fas fa-check-circle text-[7px]"></i>Active</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=100&q=80" alt="Property" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Beachfront Villa</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Diani, Mombasa</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-accentOrange bg-accentOrange/10 px-2 py-0.5 rounded-full">Short Stay</span></td>
-                                <td class="text-slate-500 text-[10px]">Coastal Homes</td>
-                                <td class="font-bold">KSh 25K</td>
-                                <td class="text-slate-500 text-[10px]">1d ago</td>
-                                <td><span class="status-badge status-active"><i class="fas fa-check-circle text-[7px]"></i>Active</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=100&q=80" alt="Property" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Contemporary Townhouse</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Kileleshwa, Nairobi</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-adminPurple bg-adminPurple/10 px-2 py-0.5 rounded-full">For Sale</span></td>
-                                <td class="text-slate-500 text-[10px]">Jane Mwangi</td>
-                                <td class="font-bold">KSh 25M</td>
-                                <td class="text-slate-500 text-[10px]">2d ago</td>
-                                <td><span class="status-badge status-pending"><i class="fas fa-clock text-[7px]"></i>Pending</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-emerald-500 hover:bg-emerald-50 transition-colors"><i class="fas fa-check text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-red-500 hover:bg-red-50 transition-colors"><i class="fas fa-times text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=100&q=80" alt="Property" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Prime 1/4 Acre Plot</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Ngong, Kajiado</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">Land</span></td>
-                                <td class="text-slate-500 text-[10px]">Summit & Valley</td>
-                                <td class="font-bold">KSh 4.5M</td>
-                                <td class="text-slate-500 text-[10px]">3d ago</td>
-                                <td><span class="status-badge status-suspended"><i class="fas fa-flag text-[7px]"></i>Reported</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-red-500 hover:bg-red-50 transition-colors"><i class="fas fa-trash text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
+                            <?php if (empty($adminProperties)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center py-10 text-slate-500 text-xs">No properties found.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($adminProperties as $prop): 
+                                    $ownerName = $prop['company_name'] ?: (trim(($prop['first_name'] ?? '') . ' ' . ($prop['last_name'] ?? '')) ?: $prop['email']);
+                                    $isActive = (int)($prop['is_active'] ?? 1);
+                                    $status = $isActive ? 'Active' : 'Pending';
+                                    $badgeClass = $isActive ? 'status-active' : 'status-pending';
+                                    $badgeIcon = $isActive ? 'fa-check-circle' : 'fa-clock';
+                                    $price = number_format((float)($prop['price'] ?? 0));
+                                    $priceSuffix = $prop['price_suffix'] ?: '';
+                                    $typeLabels = ['rent' => 'For Rent', 'sale' => 'For Sale', 'booking' => 'Short Stay'];
+                                    $typeColors = ['rent' => 'text-accentBlue bg-accentBlue/10', 'sale' => 'text-adminPurple bg-adminPurple/10', 'booking' => 'text-accentOrange bg-accentOrange/10'];
+                                    $type = $prop['type'] ?? 'rent';
+                                    $typeClass = $typeColors[$type] ?? $typeColors['rent'];
+                                    $typeLabel = $typeLabels[$type] ?? ucfirst($type);
+                                    $submitted = date('M d, Y', strtotime($prop['created_at']));
+                                     $imageUrl = !empty($prop['image_url']) ? htmlspecialchars($prop['image_url'], ENT_QUOTES) : 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=100&q=80';
+                                 ?>
+                                    <tr data-prop-id="<?= $prop['id'] ?>">
+                                        <td><input type="checkbox" class="admin-checkbox"></td>
+                                        <td>
+                                            <div class="flex items-center gap-2">
+                                                <img src="<?= $imageUrl ?>" alt="Property" class="w-10 h-10 rounded-lg object-cover flex-shrink-0">
+                                                <div class="min-w-0">
+                                                    <p class="text-xs font-bold text-navy truncate"><?= htmlspecialchars($prop['title'], ENT_QUOTES) ?></p>
+                                                    <p class="text-[9px] text-slate-400 truncate"><?= htmlspecialchars($prop['location'], ENT_QUOTES) ?></p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td><span class="text-[10px] font-semibold <?= $typeClass ?> px-2 py-0.5 rounded-full"><?= htmlspecialchars($typeLabel) ?></span></td>
+                                        <td class="text-slate-500 text-[10px]"><?= htmlspecialchars($ownerName, ENT_QUOTES) ?></td>
+                                        <td class="font-bold">KSh <?= $price ?><?= $priceSuffix ? ' ' . htmlspecialchars($priceSuffix, ENT_QUOTES) : '' ?></td>
+                                        <td class="text-slate-500 text-[10px]"><?= htmlspecialchars($submitted) ?></td>
+                                        <td><span class="status-badge <?= $badgeClass ?>"><i class="fas <?= $badgeIcon ?> text-[7px]"></i><?= htmlspecialchars($status) ?></span></td>
+                                        <td class="text-right">
+                                            <div class="flex items-center justify-end gap-1">
+                                                <button onclick="openPropertyModal('view', <?= htmlspecialchars(json_encode($prop), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors" title="View">
+                                                    <i class="fas fa-eye text-[10px]"></i>
+                                                </button>
+                                                <button onclick="openPropertyModal('edit', <?= htmlspecialchars(json_encode($prop), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors" title="Edit">
+                                                    <i class="fas fa-pen text-[10px]"></i>
+                                                </button>
+                                                <?php if ($isActive): ?>
+                                                    <button onclick="openPropertyModal('reject', <?= htmlspecialchars(json_encode(['id' => $prop['id'], 'title' => $prop['title']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Reject">
+                                                        <i class="fas fa-times text-[10px]"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button onclick="openPropertyModal('approve', <?= htmlspecialchars(json_encode(['id' => $prop['id'], 'title' => $prop['title']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors" title="Approve">
+                                                        <i class="fas fa-check text-[10px]"></i>
+                                                    </button>
+                                                <?php endif ?>
+                                                <button onclick="openPropertyModal('delete_prop', <?= htmlspecialchars(json_encode(['id' => $prop['id'], 'title' => $prop['title']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="Delete">
+                                                    <i class="fas fa-trash text-[10px]"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
                 <div class="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-                    <p class="text-[10px] text-slate-400">Showing <span class="font-bold text-navy">1-5</span> of <span class="font-bold text-navy">2,847</span> properties</p>
+                    <p class="text-[10px] text-slate-400">Showing <span class="font-bold text-navy">1-<?= min(5, count($adminProperties)) ?></span> of <span class="font-bold text-navy"><?= number_format($propStatusCounts['all']) ?></span> properties</p>
                     <div class="flex gap-1">
                         <button class="w-7 h-7 flex items-center justify-center rounded-md border border-slate-200 text-slate-400"><i class="fas fa-chevron-left text-[9px]"></i></button>
                         <button class="w-7 h-7 flex items-center justify-center rounded-md bg-navy text-white text-[10px] font-bold">1</button>
@@ -1104,17 +2265,13 @@
 
         <!-- ================= AGENCIES ================= -->
         <section id="admin-section-agencies" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Agency Management</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Manage real estate agencies and cleaning companies</p>
-            </div>
 
             <div class="flex flex-wrap gap-2 mb-4">
-                <button class="admin-tab active">All (156)</button>
-                <button class="admin-tab">Real Estate (72)</button>
-                <button class="admin-tab">Property Mgmt (48)</button>
-                <button class="admin-tab">Cleaning (36)</button>
-                <button class="admin-tab">Pending (8)</button>
+                <button class="admin-tab active">All (<?= number_format($totalAgencies) ?>)</button>
+                <button class="admin-tab">Real Estate (<?= number_format($agencyCategoryCounts['agency']) ?>)</button>
+                <button class="admin-tab">Property Mgmt (<?= number_format($agencyCategoryCounts['property_mgmt']) ?>)</button>
+                <button class="admin-tab">Cleaning (<?= number_format($agencyCategoryCounts['cleaning']) ?>)</button>
+                <button class="admin-tab">Pending (<?= number_format(0) ?>)</button>
             </div>
 
             <div class="bg-white rounded-2xl border border-slate-100 overflow-hidden">
@@ -1133,110 +2290,79 @@
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-lg bg-adminPurple/10 flex items-center justify-center flex-shrink-0">
-                                            <i class="fas fa-handshake text-adminPurple text-xs"></i>
-                                        </div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Prestige Realty Group</p>
-                                            <p class="text-[9px] text-slate-400 truncate">info@prestigerealty.co.ke</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-adminPurple bg-adminPurple/10 px-2 py-0.5 rounded-full">Real Estate</span></td>
-                                <td class="text-slate-500 text-[10px]">Nairobi</td>
-                                <td><span class="text-[10px] font-bold text-accentOrange"><i class="fas fa-star mr-0.5"></i>5.0</span></td>
-                                <td><span class="status-badge status-active"><i class="fas fa-certificate text-[7px]"></i>Verified</span></td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-lg bg-accentBlue/10 flex items-center justify-center flex-shrink-0">
-                                            <i class="fas fa-shield-alt text-accentBlue text-xs"></i>
-                                        </div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Guardian Property Managers</p>
-                                            <p class="text-[9px] text-slate-400 truncate">info@guardianpm.co.ke</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-accentBlue bg-accentBlue/10 px-2 py-0.5 rounded-full">Property Mgmt</span></td>
-                                <td class="text-slate-500 text-[10px]">Nairobi</td>
-                                <td><span class="text-[10px] font-bold text-accentOrange"><i class="fas fa-star mr-0.5"></i>5.0</span></td>
-                                <td><span class="status-badge status-active"><i class="fas fa-certificate text-[7px]"></i>Verified</span></td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-lg bg-adminGreen/10 flex items-center justify-center flex-shrink-0">
-                                            <i class="fas fa-spray-can text-adminGreen text-xs"></i>
-                                        </div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Sparkle & Shine Pro</p>
-                                            <p class="text-[9px] text-slate-400 truncate">info@sparkleshine.co.ke</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-adminGreen bg-adminGreen/10 px-2 py-0.5 rounded-full">Cleaning</span></td>
-                                <td class="text-slate-500 text-[10px]">Nairobi</td>
-                                <td><span class="text-[10px] font-bold text-accentOrange"><i class="fas fa-star mr-0.5"></i>5.0</span></td>
-                                <td><span class="status-badge status-active"><i class="fas fa-certificate text-[7px]"></i>Verified</span></td>
-                                <td><span class="status-badge status-active">Active</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-ban text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td><input type="checkbox" class="admin-checkbox"></td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-                                            <i class="fas fa-water text-amber-600 text-xs"></i>
-                                        </div>
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Coastal Homes Ltd</p>
-                                            <p class="text-[9px] text-slate-400 truncate">sales@coastalhomes.co.ke</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td><span class="text-[10px] font-semibold text-adminPurple bg-adminPurple/10 px-2 py-0.5 rounded-full">Real Estate</span></td>
-                                <td class="text-slate-500 text-[10px]">Mombasa</td>
-                                <td><span class="text-[10px] font-bold text-accentOrange"><i class="fas fa-star mr-0.5"></i>4.0</span></td>
-                                <td><span class="status-badge status-pending"><i class="fas fa-clock text-[7px]"></i>Pending</span></td>
-                                <td><span class="status-badge status-pending">Pending</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-emerald-500 hover:bg-emerald-50 transition-colors" title="Verify"><i class="fas fa-check text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-red-500 hover:bg-red-50 transition-colors" title="Reject"><i class="fas fa-times text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
+                            <?php if (empty($adminAgencies)): ?>
+                                <tr>
+                                    <td colspan="8" class="text-center py-10 text-slate-500 text-xs">No agencies found.</td>
+                                </tr>
+                            <?php else: ?>
+                                <?php foreach ($adminAgencies as $agency): 
+                                    $categoryLabels = ['agency' => 'Real Estate Agency', 'property_mgmt' => 'Property Mgmt', 'cleaning' => 'Cleaning'];
+                                    $categoryColors = ['agency' => 'text-adminPurple bg-adminPurple/10', 'property_mgmt' => 'text-accentBlue bg-accentBlue/10', 'cleaning' => 'text-adminGreen bg-adminGreen/10'];
+                                    $categoryIcons = ['agency' => 'fa-handshake', 'property_mgmt' => 'fa-shield-alt', 'cleaning' => 'fa-spray-can'];
+                                    $cat = $agency['category'] ?? 'agency';
+                                    $catClass = $categoryColors[$cat] ?? $categoryColors['agency'];
+                                    $catLabel = $categoryLabels[$cat] ?? ucfirst($cat);
+                                    $catIcon = $categoryIcons[$cat] ?? 'fa-building';
+                                    $isActive = (int)($agency['is_active'] ?? 1);
+                                    $isVerified = (int)($agency['verified'] ?? 0);
+                                    $status = $isActive ? 'Active' : 'Suspended';
+                                    $badgeClass = $isActive ? 'status-active' : 'status-suspended';
+                                    $badgeIcon = $isActive ? 'fa-check-circle' : 'fa-ban';
+                                    $rating = (float)($agency['rating'] ?? 0);
+                                    $logo = !empty($agency['logo']) ? htmlspecialchars($agency['logo'], ENT_QUOTES) : 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=100&q=80';
+                                ?>
+                                    <tr data-agency-id="<?= $agency['id'] ?>">
+                                        <td><input type="checkbox" class="admin-checkbox"></td>
+                                        <td>
+                                            <div class="flex items-center gap-2">
+                                                <div class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
+                                                    <img src="<?= $logo ?>" alt="Logo" class="w-8 h-8 rounded object-cover">
+                                                </div>
+                                                <div class="min-w-0">
+                                                    <p class="text-xs font-bold text-navy truncate"><?= htmlspecialchars($agency['name'], ENT_QUOTES) ?></p>
+                                                    <p class="text-[9px] text-slate-400 truncate"><?= htmlspecialchars($agency['email'], ENT_QUOTES) ?></p>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td><span class="text-[10px] font-semibold <?= $catClass ?> px-2 py-0.5 rounded-full"><i class="fas <?= $catIcon ?> mr-1"></i><?= htmlspecialchars($catLabel) ?></span></td>
+                                        <td class="text-slate-500 text-[10px]"><?= htmlspecialchars($agency['location'], ENT_QUOTES) ?></td>
+                                        <td><span class="text-[10px] font-bold text-accentOrange"><i class="fas fa-star mr-0.5"></i><?= htmlspecialchars($rating) ?></span></td>
+                                        <td><span class="status-badge <?= $isVerified ? 'status-active' : 'status-pending' ?>"><i class="fas <?= $isVerified ? 'fa-certificate' : 'fa-clock' ?> text-[7px]"></i><?= $isVerified ? 'Verified' : 'Pending' ?></span></td>
+                                        <td><span class="status-badge <?= $badgeClass ?>"><i class="fas <?= $badgeIcon ?> text-[7px]"></i><?= htmlspecialchars($status) ?></span></td>
+                                        <td class="text-right">
+                                            <div class="flex items-center justify-end gap-1">
+                                                <button onclick="openAgencyModal('view', <?= htmlspecialchars(json_encode($agency), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors" title="View">
+                                                    <i class="fas fa-eye text-[10px]"></i>
+                                                </button>
+                                                <button onclick="openAgencyModal('edit', <?= htmlspecialchars(json_encode($agency), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors" title="Edit">
+                                                    <i class="fas fa-pen text-[10px]"></i>
+                                                </button>
+                                                <?php if (!$isVerified): ?>
+                                                    <button onclick="openAgencyModal('verify', <?= htmlspecialchars(json_encode(['id' => $agency['id'], 'name' => $agency['name']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors" title="Verify">
+                                                        <i class="fas fa-check text-[10px]"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button onclick="openAgencyModal('unverify', <?= htmlspecialchars(json_encode(['id' => $agency['id'], 'name' => $agency['name']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Unverify">
+                                                        <i class="fas fa-times text-[10px]"></i>
+                                                    </button>
+                                                <?php endif ?>
+                                                <?php if ($isActive): ?>
+                                                    <button onclick="openAgencyModal('suspend_agency', <?= htmlspecialchars(json_encode(['id' => $agency['id'], 'name' => $agency['name']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Suspend">
+                                                        <i class="fas fa-ban text-[10px]"></i>
+                                                    </button>
+                                                <?php else: ?>
+                                                    <button onclick="openAgencyModal('activate_agency', <?= htmlspecialchars(json_encode(['id' => $agency['id'], 'name' => $agency['name']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors" title="Activate">
+                                                        <i class="fas fa-check text-[10px]"></i>
+                                                    </button>
+                                                <?php endif ?>
+                                                <button onclick="openAgencyModal('delete_agency', <?= htmlspecialchars(json_encode(['id' => $agency['id'], 'name' => $agency['name']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="Delete">
+                                                    <i class="fas fa-trash text-[10px]"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -1244,38 +2370,175 @@
         </section>
 
 
+        <!-- ================= AGENCY MODALS ================= -->
+        <!-- View Agency Modal -->
+        <div id="agencyModalView" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeAgencyModal('agencyModalView')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">View Agency</h3>
+                    <button onclick="closeAgencyModal('agencyModalView')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <div class="space-y-4" id="agencyViewContent"></div>
+                <div class="mt-6 flex justify-end">
+                    <button onclick="closeAgencyModal('agencyModalView')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Agency Modal -->
+        <div id="agencyModalEdit" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeAgencyModal('agencyModalEdit')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Edit Agency</h3>
+                    <button onclick="closeAgencyModal('agencyModalEdit')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <form id="agencyEditForm" class="space-y-4" onsubmit="return saveAgencyEdit(event)">
+                    <input type="hidden" name="prop_id" id="editAgencyId">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Agency Name</label>
+                        <input type="text" name="name" id="editAgencyName" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Location</label>
+                        <input type="text" name="location" id="editAgencyLocation" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Category</label>
+                        <select name="category" id="editAgencyCategory" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                            <option value="agency">Real Estate Agency</option>
+                            <option value="property_mgmt">Property Management</option>
+                            <option value="cleaning">Cleaning</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Rating</label>
+                        <input type="number" name="rating" id="editAgencyRating" min="0" max="5" step="0.1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Phone</label>
+                        <input type="text" name="phone" id="editAgencyPhone" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Email</label>
+                        <input type="email" name="email" id="editAgencyEmail" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Logo URL</label>
+                        <input type="text" name="logo" id="editAgencyLogo" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" name="is_active" id="editAgencyIsActive" class="admin-checkbox">
+                        <label for="editAgencyIsActive" class="text-xs text-slate-600">Active</label>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" name="verified" id="editAgencyVerified" class="admin-checkbox">
+                        <label for="editAgencyVerified" class="text-xs text-slate-600">Verified</label>
+                    </div>
+                    <div class="flex items-center justify-end pt-2">
+                        <button type="button" onclick="closeAgencyModal('agencyModalEdit')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors mr-2">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-accentBlue transition-colors">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Confirm Action Modal (Verify / Unverify / Activate / Suspend / Delete) -->
+        <div id="agencyModalConfirm" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeAgencyModal('agencyModalConfirm')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 id="agencyConfirmTitle" class="font-serif text-lg text-navy font-semibold">Confirm Action</h3>
+                    <button onclick="closeAgencyModal('agencyModalConfirm')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <p id="agencyConfirmMessage" class="text-slate-600 text-sm mb-6">Are you sure?</p>
+                <input type="hidden" id="agencyConfirmPropId">
+                <input type="hidden" id="agencyConfirmAction">
+                <div class="flex items-center justify-end gap-2">
+                    <button onclick="closeAgencyModal('agencyModalConfirm')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                    <button id="agencyConfirmBtn" class="px-4 py-2 rounded-lg bg-accentBlue text-white text-xs font-medium hover:bg-accentOrange transition-colors">Confirm</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Add Agency Modal -->
+        <div id="agencyModalAdd" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeAgencyModal('agencyModalAdd')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Add Agency</h3>
+                    <button onclick="closeAgencyModal('agencyModalAdd')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <form id="agencyAddForm" class="space-y-4" onsubmit="return saveAgencyAdd(event)">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Agency Name</label>
+                        <input type="text" name="name" placeholder="e.g. Prestige Realty Group" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Location</label>
+                        <input type="text" name="location" placeholder="e.g. Westlands, Nairobi" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Category</label>
+                        <select name="category" class="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                            <option value="agency">Real Estate Agency</option>
+                            <option value="property_mgmt">Property Management</option>
+                            <option value="cleaning">Cleaning</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Rating</label>
+                        <input type="number" name="rating" placeholder="5" min="0" max="5" step="0.1" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Phone</label>
+                        <input type="text" name="phone" placeholder="+254 700 000 000" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Email</label>
+                        <input type="email" name="email" placeholder="info@agency.co.ke" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Logo URL</label>
+                        <input type="text" name="logo" placeholder="https://..." class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30">
+                    </div>
+                    <div class="flex items-center justify-end pt-2">
+                        <button type="button" onclick="closeAgencyModal('agencyModalAdd')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors mr-2">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-accentBlue transition-colors">Create Agency</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <!-- ================= BOOKINGS ================= -->
         <section id="admin-section-bookings" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Bookings Management</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Manage all reservations, viewings, and short-stay bookings</p>
-            </div>
 
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                 <div class="bg-white rounded-xl p-3 border border-slate-100 text-center">
                     <p class="text-[10px] text-slate-400 font-medium">Total</p>
-                    <p class="text-xl font-bold text-navy">4,521</p>
+                    <p class="text-xl font-bold text-navy"><?= number_format($totalBookings) ?></p>
                 </div>
                 <div class="bg-white rounded-xl p-3 border border-slate-100 text-center">
                     <p class="text-[10px] text-slate-400 font-medium">Confirmed</p>
-                    <p class="text-xl font-bold text-adminGreen">3,842</p>
+                    <p class="text-xl font-bold text-adminGreen"><?= number_format($bookingStatusCounts['confirmed'] ?? 0) ?></p>
                 </div>
                 <div class="bg-white rounded-xl p-3 border border-slate-100 text-center">
                     <p class="text-[10px] text-slate-400 font-medium">Pending</p>
-                    <p class="text-xl font-bold text-accentOrange">342</p>
+                    <p class="text-xl font-bold text-accentOrange"><?= number_format($bookingStatusCounts['pending'] ?? 0) ?></p>
                 </div>
                 <div class="bg-white rounded-xl p-3 border border-slate-100 text-center">
                     <p class="text-[10px] text-slate-400 font-medium">Cancelled</p>
-                    <p class="text-xl font-bold text-red-500">337</p>
+                    <p class="text-xl font-bold text-red-500"><?= number_format($bookingStatusCounts['cancelled'] ?? 0) ?></p>
                 </div>
             </div>
 
             <div class="flex flex-wrap gap-2 mb-4">
-                <button class="admin-tab active">All (4,521)</button>
-                <button class="admin-tab">Upcoming (124)</button>
-                <button class="admin-tab">Active (86)</button>
-                <button class="admin-tab">Completed (3,842)</button>
-                <button class="admin-tab">Cancelled (337)</button>
+                <button class="admin-tab active">All (<?= number_format($totalBookings) ?>)</button>
+                <button class="admin-tab">Upcoming (<?= number_format($bookingStatusCounts['upcoming'] ?? 0) ?>)</button>
+                <button class="admin-tab">Active (<?= number_format($bookingStatusCounts['active'] ?? 0) ?>)</button>
+                <button class="admin-tab">Completed (<?= number_format($bookingStatusCounts['completed'] ?? 0) ?>)</button>
+                <button class="admin-tab">Cancelled (<?= number_format($bookingStatusCounts['cancelled'] ?? 0) ?>)</button>
             </div>
 
             <div class="bg-white rounded-2xl border border-slate-100 overflow-hidden">
@@ -1285,124 +2548,115 @@
                             <tr>
                                 <th>Booking ID</th>
                                 <th>Property</th>
-                                <th>Guest</th>
-                                <th>Dates</th>
-                                <th>Amount</th>
+                                <th>Client</th>
+                                <th>Location</th>
+                                <th>Owner</th>
                                 <th>Status</th>
                                 <th class="text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr>
-                                <td class="font-mono text-[10px] font-bold text-accentBlue">#HV-2451</td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1499793983690-e29da59ef1c2?auto=format&fit=crop&w=80&q=80" alt="Property" class="w-8 h-8 rounded-md object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Beachfront Villa</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Diani, Mombasa</p>
+                            <?php if (empty($adminBookings)): ?>
+                                <tr>
+                                    <td colspan="7" class="p-6 text-center text-slate-400 text-xs">No bookings found.</td>
+                                </tr>
+                            <?php endif; ?>
+                            <?php foreach ($adminBookings as $booking): 
+                                $clientName = $booking['client_full_name'] ?: ($booking['client_first_name'] . ' ' . $booking['client_last_name']);
+                                $clientName = trim($clientName) ?: $booking['client_email'];
+                                $ownerName = $booking['owner_company'] ?: ($booking['owner_first_name'] . ' ' . $booking['owner_last_name']);
+                                $ownerName = trim($ownerName) ?: $booking['owner_email'];
+                                $bookingId = '#HV-' . str_pad($booking['id'], 4, '0', STR_PAD_LEFT);
+                                $isActive = !empty($booking['is_active']) && $booking['is_active'] == 1;
+                                $statusClass = $isActive ? 'status-confirmed' : 'status-pending';
+                                $statusText = $isActive ? 'Confirmed' : 'Pending';
+                                $statusIcon = $isActive ? 'fa-check-circle' : 'fa-clock';
+                                $clientInitials = strtoupper(substr($booking['client_first_name'] ?: '', 0, 1) . substr($booking['client_last_name'] ?: '', 0, 1)) ?: 'U';
+                                $ownerInitials = strtoupper(substr($booking['owner_first_name'] ?: '', 0, 1) . substr($booking['owner_last_name'] ?: '', 0, 1)) ?: 'O';
+                            ?>
+                                <tr data-booking-id="<?= $booking['id'] ?>">
+                                    <td class="font-mono text-[10px] font-bold text-accentBlue"><?= htmlspecialchars($bookingId) ?></td>
+                                    <td>
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-8 h-8 rounded-md bg-slate-100 flex items-center justify-center flex-shrink-0">
+                                                <i class="fas fa-building text-slate-400 text-[10px]"></i>
+                                            </div>
+                                            <div class="min-w-0">
+                                                <p class="text-xs font-bold text-navy truncate"><?= htmlspecialchars($booking['title']) ?></p>
+                                                <p class="text-[9px] text-slate-400 truncate"><?= htmlspecialchars($booking['location'] ?? '—') ?></p>
+                                            </div>
                                         </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-6 h-6 rounded-full bg-accentOrange flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">DK</div>
-                                        <span class="text-[10px] text-slate-600">David K.</span>
-                                    </div>
-                                </td>
-                                <td class="text-[10px] text-slate-500">Dec 15 – Dec 18</td>
-                                <td class="font-bold">KSh 55,500</td>
-                                <td><span class="status-badge status-confirmed"><i class="fas fa-check-circle text-[7px]"></i>Confirmed</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-pen text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors"><i class="fas fa-times text-[10px]"></i></button>
-                                    </div>
-                                </td>
+                                    </td>
+                                    <td>
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-6 h-6 rounded-full bg-accentBlue flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0"><?= htmlspecialchars($clientInitials) ?></div>
+                                            <span class="text-[10px] text-slate-600"><?= htmlspecialchars($clientName) ?></span>
+                                        </div>
+                                    </td>
+                                    <td class="text-[10px] text-slate-500"><?= htmlspecialchars($booking['client_location'] ?? '—') ?></td>
+                                    <td>
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-6 h-6 rounded-full bg-adminPurple flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0"><?= htmlspecialchars($ownerInitials) ?></div>
+                                            <span class="text-[10px] text-slate-600"><?= htmlspecialchars($ownerName) ?></span>
+                                        </div>
+                                    </td>
+                                    <td><span class="status-badge <?= $statusClass ?>"><i class="fas <?= $statusIcon ?> text-[7px]"></i><?= htmlspecialchars($statusText) ?></span></td>
+                                    <td class="text-right">
+                                        <div class="flex items-center justify-end gap-1">
+                                            <button onclick="openBookingModal('view', <?= htmlspecialchars(json_encode([
+                                                'id' => $booking['id'],
+                                                'title' => $booking['title'],
+                                                'location' => $booking['location'] ?? '',
+                                                'client_name' => $clientName,
+                                                'client_email' => $booking['client_email'] ?? '',
+                                                'client_phone' => $booking['client_phone'] ?? '',
+                                                'client_location' => $booking['client_location'] ?? '',
+                                                'owner_name' => $ownerName,
+                                                'owner_email' => $booking['owner_email'] ?? '',
+                                                'property_type' => $booking['property_type'] ?? '',
+                                                'description' => $booking['description'] ?? '',
+                                                'is_active' => $booking['is_active'] ?? 1,
+                                                'created_at' => $booking['created_at'] ?? '',
+                                            ]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors" title="View">
+                                                <i class="fas fa-eye text-[10px]"></i>
+                                            </button>
+                                            <button onclick="openBookingModal('edit', <?= htmlspecialchars(json_encode(['id' => $booking['id'], 'title' => $booking['title']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors" title="Edit">
+                                                <i class="fas fa-pen text-[10px]"></i>
+                                            </button>
+                                            <button onclick="openBookingModal('delete', <?= htmlspecialchars(json_encode(['id' => $booking['id'], 'title' => $booking['title']]), ENT_QUOTES) ?>)" class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-500 transition-colors" title="Delete">
+                                                <i class="fas fa-times text-[10px]"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Client-Owner Connections -->
+            <div class="bg-white rounded-2xl border border-slate-100 p-5 mb-5">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Client ↔ Owner Connections</h3>
+                    <p class="text-[10px] text-slate-400">Users and property owners who have contacted each other</p>
+                </div>
+                <div class="overflow-x-auto thin-scroll">
+                    <table class="admin-table w-full">
+                        <thead>
+                            <tr>
+                                <th>Client</th>
+                                <th>Client Email</th>
+                                <th>Owner</th>
+                                <th>Owner Email</th>
+                                <th>Messages</th>
+                                <th>Last Contact</th>
+                                <th class="text-right">Action</th>
                             </tr>
+                        </thead>
+                        <tbody id="connectionsTableBody">
                             <tr>
-                                <td class="font-mono text-[10px] font-bold text-accentBlue">#HV-2450</td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=80&q=80" alt="Property" class="w-8 h-8 rounded-md object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Modern 3 Bed Villa</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Kilimani, Nairobi</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-6 h-6 rounded-full bg-accentBlue flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">SW</div>
-                                        <span class="text-[10px] text-slate-600">Sarah W.</span>
-                                    </div>
-                                </td>
-                                <td class="text-[10px] text-slate-500">Jan 5, 2025</td>
-                                <td class="font-bold">Free</td>
-                                <td><span class="status-badge status-pending"><i class="fas fa-clock text-[7px]"></i>Viewing</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-emerald-500 hover:bg-emerald-50 transition-colors"><i class="fas fa-check text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-red-500 hover:bg-red-50 transition-colors"><i class="fas fa-times text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="font-mono text-[10px] font-bold text-accentBlue">#HV-2449</td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=80&q=80" alt="Property" class="w-8 h-8 rounded-md object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Luxury Safari Lodge</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Maasai Mara</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-6 h-6 rounded-full bg-adminGreen flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">JK</div>
-                                        <span class="text-[10px] text-slate-600">James K.</span>
-                                    </div>
-                                </td>
-                                <td class="text-[10px] text-slate-500">Feb 10 – Feb 12</td>
-                                <td class="font-bold">KSh 90,000</td>
-                                <td><span class="status-badge status-pending"><i class="fas fa-clock text-[7px]"></i>Pending</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-emerald-500 hover:bg-emerald-50 transition-colors"><i class="fas fa-check text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-red-500 hover:bg-red-50 transition-colors"><i class="fas fa-times text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr>
-                                <td class="font-mono text-[10px] font-bold text-accentBlue">#HV-2448</td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <img src="https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=80&q=80" alt="Property" class="w-8 h-8 rounded-md object-cover flex-shrink-0">
-                                        <div class="min-w-0">
-                                            <p class="text-xs font-bold text-navy truncate">Executive City Suite</p>
-                                            <p class="text-[9px] text-slate-400 truncate">Westlands, Nairobi</p>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="flex items-center gap-2">
-                                        <div class="w-6 h-6 rounded-full bg-adminPurple flex items-center justify-center text-white font-bold text-[8px] flex-shrink-0">AM</div>
-                                        <span class="text-[10px] text-slate-600">Alice M.</span>
-                                    </div>
-                                </td>
-                                <td class="text-[10px] text-slate-500">Nov 1 – Nov 3</td>
-                                <td class="font-bold">KSh 30,000</td>
-                                <td><span class="status-badge status-completed"><i class="fas fa-check text-[7px]"></i>Completed</span></td>
-                                <td class="text-right">
-                                    <div class="flex items-center justify-end gap-1">
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-navy transition-colors"><i class="fas fa-eye text-[10px]"></i></button>
-                                        <button class="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-accentBlue transition-colors"><i class="fas fa-receipt text-[10px]"></i></button>
-                                    </div>
-                                </td>
+                                <td colspan="7" class="p-6 text-center text-slate-400 text-xs">Loading connections…</td>
                             </tr>
                         </tbody>
                     </table>
@@ -1411,128 +2665,184 @@
         </section>
 
 
-        <!-- ================= SUPPORT MESSAGES ================= -->
-        <section id="admin-section-messages" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Support Messages</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Manage user inquiries, complaints, and support tickets</p>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <!-- Ticket list -->
-                <div class="bg-white rounded-2xl border border-slate-100 p-3">
-                    <div class="flex items-center gap-2 mb-3 px-1">
-                        <div class="admin-search flex items-center gap-2 px-3 py-2 flex-1">
-                            <i class="fas fa-search text-slate-400 text-[10px]"></i>
-                            <input type="text" placeholder="Search tickets…" class="bg-transparent text-[11px] outline-none w-full text-slate-600 placeholder-slate-400">
+        <!-- ================= BOOKING MODALS ================= -->
+        <!-- View Booking Modal -->
+        <div id="bookingModalView" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeBookingModal('bookingModalView')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">View Booking</h3>
+                    <button onclick="closeBookingModal('bookingModalView')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <div class="space-y-3">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Booking ID</label>
+                            <p class="text-xs font-mono font-bold text-navy" id="viewBookingId">#HV-0000</p>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Status</label>
+                            <span class="text-xs font-bold text-accentBlue" id="viewBookingStatus">—</span>
                         </div>
                     </div>
-                    <div class="space-y-1">
-                        <div class="p-2.5 rounded-lg bg-accentBlue/5 border border-accentBlue/20 cursor-pointer">
-                            <div class="flex items-center justify-between gap-1">
-                                <span class="text-[9px] font-bold text-accentBlue bg-accentBlue/10 px-1.5 py-0.5 rounded">#TKT-1024</span>
-                                <span class="text-[9px] text-red-500 font-bold">High</span>
-                            </div>
-                            <p class="text-[11px] font-bold text-navy mt-1 truncate">Booking not confirmed</p>
-                            <p class="text-[10px] text-slate-500 truncate mt-0.5">"I paid for a booking but haven't received confirmation…"</p>
-                            <div class="flex items-center justify-between mt-1.5">
-                                <span class="text-[9px] text-slate-400">David K.</span>
-                                <span class="text-[9px] text-slate-400">2h ago</span>
-                            </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Property Title</label>
+                        <p class="text-xs font-semibold text-navy" id="viewBookingTitle">—</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Property Location</label>
+                        <p class="text-xs text-slate-600" id="viewBookingLocation">—</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Property Type</label>
+                        <p class="text-xs text-slate-600" id="viewBookingPropertyType">—</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Client Name</label>
+                            <p class="text-xs font-semibold text-navy" id="viewBookingClientName">—</p>
                         </div>
-                        <div class="p-2.5 rounded-lg hover:bg-slate-50 cursor-pointer">
-                            <div class="flex items-center justify-between gap-1">
-                                <span class="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">#TKT-1023</span>
-                                <span class="text-[9px] text-amber-500 font-bold">Medium</span>
-                            </div>
-                            <p class="text-[11px] font-bold text-navy mt-1 truncate">Cannot upload photos</p>
-                            <p class="text-[10px] text-slate-500 truncate mt-0.5">"The upload button doesn't work on my phone…"</p>
-                            <div class="flex items-center justify-between mt-1.5">
-                                <span class="text-[9px] text-slate-400">Sarah W.</span>
-                                <span class="text-[9px] text-slate-400">5h ago</span>
-                            </div>
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Client Email</label>
+                            <p class="text-xs text-slate-600 truncate" id="viewBookingClientEmail">—</p>
                         </div>
-                        <div class="p-2.5 rounded-lg hover:bg-slate-50 cursor-pointer">
-                            <div class="flex items-center justify-between gap-1">
-                                <span class="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">#TKT-1022</span>
-                                <span class="text-[9px] text-slate-400 font-bold">Low</span>
-                            </div>
-                            <p class="text-[11px] font-bold text-navy mt-1 truncate">Question about fees</p>
-                            <p class="text-[10px] text-slate-500 truncate mt-0.5">"What are the platform fees for agencies…"</p>
-                            <div class="flex items-center justify-between mt-1.5">
-                                <span class="text-[9px] text-slate-400">Prestige Realty</span>
-                                <span class="text-[9px] text-slate-400">1d ago</span>
-                            </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Client Phone</label>
+                        <p class="text-xs text-slate-600" id="viewBookingClientPhone">—</p>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Client Location</label>
+                        <p class="text-xs text-slate-600" id="viewBookingClientLocation">—</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Owner Name</label>
+                            <p class="text-xs font-semibold text-navy" id="viewBookingOwnerName">—</p>
                         </div>
-                        <div class="p-2.5 rounded-lg hover:bg-slate-50 cursor-pointer">
-                            <div class="flex items-center justify-between gap-1">
-                                <span class="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">#TKT-1021</span>
-                                <span class="text-[9px] text-amber-500 font-bold">Medium</span>
-                            </div>
-                            <p class="text-[11px] font-bold text-navy mt-1 truncate">Report a listing</p>
-                            <p class="text-[10px] text-slate-500 truncate mt-0.5">"This property has incorrect information…"</p>
-                            <div class="flex items-center justify-between mt-1.5">
-                                <span class="text-[9px] text-slate-400">James K.</span>
-                                <span class="text-[9px] text-slate-400">1d ago</span>
-                            </div>
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Owner Email</label>
+                            <p class="text-xs text-slate-600 truncate" id="viewBookingOwnerEmail">—</p>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Description</label>
+                        <p class="text-xs text-slate-600 leading-relaxed" id="viewBookingDescription">—</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Created</label>
+                            <p class="text-xs text-slate-600" id="viewBookingCreated">—</p>
                         </div>
                     </div>
                 </div>
+                <div class="mt-6 flex justify-end">
+                    <button onclick="closeBookingModal('bookingModalView')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Close</button>
+                </div>
+            </div>
+        </div>
 
-                <!-- Chat view -->
-                <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-100 flex flex-col h-[500px]">
+        <!-- Edit Booking Modal -->
+        <div id="bookingModalEdit" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeBookingModal('bookingModalEdit')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold">Edit Booking</h3>
+                    <button onclick="closeBookingModal('bookingModalEdit')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <form id="bookingEditForm" class="space-y-4" onsubmit="return saveBookingEdit(event)">
+                    <input type="hidden" id="editBookingId">
+                    <div>
+                        <label class="block text-[10px] uppercase tracking-wide font-bold text-slate-500 mb-1.5">Property Title</label>
+                        <input type="text" id="editBookingTitle" class="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-accentBlue/30" required>
+                    </div>
+                    <div class="flex items-center justify-end pt-2">
+                        <button type="button" onclick="closeBookingModal('bookingModalEdit')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors mr-2">Cancel</button>
+                        <button type="submit" class="px-4 py-2 rounded-lg bg-navy text-white text-xs font-medium hover:bg-accentBlue transition-colors">Save Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Delete Booking Modal -->
+        <div id="bookingModalDelete" class="admin-modal fixed inset-0 z-50 flex items-center justify-center px-4">
+            <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="closeBookingModal('bookingModalDelete')"></div>
+            <div class="relative bg-white rounded-2xl border border-slate-200 w-full max-w-md p-6 shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-serif text-lg text-navy font-semibold" id="deleteBookingTitle">Delete Booking</h3>
+                    <button onclick="closeBookingModal('bookingModalDelete')" class="modal-close"><i class="fas fa-times text-xs"></i></button>
+                </div>
+                <p class="text-slate-600 text-sm mb-6" id="deleteBookingMessage">Are you sure?</p>
+                <input type="hidden" id="deleteBookingId">
+                <div class="flex items-center justify-end gap-2">
+                    <button onclick="closeBookingModal('bookingModalDelete')" class="px-4 py-2 rounded-lg bg-slate-100 text-slate-600 text-xs font-medium hover:bg-slate-200 transition-colors">Cancel</button>
+                    <button id="deleteBookingConfirmBtn" class="px-4 py-2 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 transition-colors">Delete</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= SUPPORT ================= -->
+        <section id="admin-section-messages" class="admin-section">
+
+            <div class="flex flex-col lg:flex-row gap-0 h-[700px]">
+                <!-- Conversations list -->
+                <div class="flex-1 lg:w-1/3 w-full border-r border-slate-100 bg-white rounded-2xl border-b-0 border-r-0 lg:border-b border-r flex flex-col h-full overflow-hidden">
                     <div class="p-3 border-b border-slate-100 flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <div class="w-9 h-9 rounded-full bg-accentOrange flex items-center justify-center text-white font-bold text-[10px]">DK</div>
-                            <div>
-                                <p class="text-xs font-bold text-navy">David K. — #TKT-1024</p>
-                                <p class="text-[9px] text-red-500 font-semibold flex items-center gap-1">
-                                    <span class="w-1.5 h-1.5 bg-red-500 rounded-full"></span> High Priority
-                                </p>
-                            </div>
+                        <div class="admin-search flex items-center gap-2 px-3 py-2 flex-1">
+                            <i class="fas fa-search text-slate-400 text-[10px]"></i>
+                            <input type="text" id="supportSearchInput" placeholder="Search conversations…" class="bg-transparent text-[11px] outline-none w-full text-slate-600 placeholder-slate-400">
                         </div>
-                        <div class="flex gap-1">
-                            <button class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors" title="Resolve"><i class="fas fa-check text-xs"></i></button>
-                            <button class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors" title="Close"><i class="fas fa-times text-xs"></i></button>
-                        </div>
+                        <button onclick="loadSupportConversations()" class="w-7 h-7 flex items-center justify-center rounded-md border border-slate-200 text-slate-400 hover:bg-slate-50 transition-colors" title="Refresh">
+                            <i class="fas fa-sync text-[10px]"></i>
+                        </button>
+                    </div>
+                    <div id="supportConversationList" class="flex-1 overflow-y-auto thin-scroll">
+                        <div class="p-6 text-center text-slate-400 text-xs">Loading conversations…</div>
+                    </div>
+                </div>
+
+                <!-- Chat area -->
+                <div class="flex-1 bg-white rounded-2xl border-b-0 lg:border-r border-r border-slate-100 flex flex-col h-full overflow-hidden">
+                    <div id="supportChatEmpty" class="flex-1 flex flex-col items-center justify-center text-slate-400 text-xs px-6">
+                        <i class="fas fa-comments text-4xl mb-3 opacity-20"></i>
+                        <p>Select a conversation to start chatting</p>
                     </div>
 
-                    <div class="flex-1 overflow-y-auto thin-scroll p-4 space-y-3 bg-slate-50/50">
-                        <div class="flex justify-start">
-                            <div class="max-w-[80%] bg-white rounded-2xl rounded-bl-sm px-3.5 py-2.5 shadow-sm border border-slate-100">
-                                <p class="text-[11px] text-slate-700">Hello, I paid for a booking (Beachfront Villa, Dec 15-18) about 2 hours ago but I haven't received any confirmation email or message. Can you help?</p>
-                                <span class="text-[8px] text-slate-400 mt-1 block">2:15 PM</span>
+                    <div id="supportChatView" class="hidden flex-col h-full overflow-hidden">
+                        <!-- Header -->
+                        <div class="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                            <div class="flex items-center gap-3 cursor-pointer" onclick="goBackToConversations()">
+                                <div class="w-8 h-8 rounded-full bg-accentBlue flex items-center justify-center text-white font-bold text-[10px]">
+                                    <span id="supportContactAvatar"></span>
+                                </div>
+                                <div>
+                                    <p id="supportContactName" class="text-xs font-bold text-navy truncate">Contact</p>
+                                    <p id="supportContactStatus" class="text-[9px] text-slate-400">Online</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-1">
+                                <button class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 transition-colors" title="Call"><i class="fas fa-phone text-[10px]"></i></button>
+                                <button class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 transition-colors" title="Video"><i class="fas fa-video text-[10px]"></i></button>
+                                <button class="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 transition-colors" title="More"><i class="fas fa-ellipsis-v text-[10px]"></i></button>
                             </div>
                         </div>
-                        <div class="flex justify-end">
-                            <div class="max-w-[80%] bg-gradient-to-br from-navy to-accentBlue text-white rounded-2xl rounded-br-sm px-3.5 py-2.5 shadow-sm">
-                                <p class="text-[11px]">Hi David! I'm sorry for the inconvenience. Let me check your booking status right away. Could you please share your booking reference number?</p>
-                                <span class="text-[8px] text-white/60 mt-1 block text-right">2:18 PM</span>
-                            </div>
-                        </div>
-                        <div class="flex justify-start">
-                            <div class="max-w-[80%] bg-white rounded-2xl rounded-bl-sm px-3.5 py-2.5 shadow-sm border border-slate-100">
-                                <p class="text-[11px] text-slate-700">The reference is #HV-2451. I have the M-Pesa transaction receipt if that helps.</p>
-                                <span class="text-[8px] text-slate-400 mt-1 block">2:20 PM</span>
-                            </div>
-                        </div>
-                        <div class="flex justify-end">
-                            <div class="max-w-[80%] bg-gradient-to-br from-navy to-accentBlue text-white rounded-2xl rounded-br-sm px-3.5 py-2.5 shadow-sm">
-                                <p class="text-[11px]">Thank you! I've found your booking — it was confirmed. The confirmation email may have gone to your spam folder. I'm re-sending it now. Please check in a few minutes.</p>
-                                <span class="text-[8px] text-white/60 mt-1 block text-right">2:24 PM</span>
-                            </div>
-                        </div>
-                    </div>
 
-                    <div class="p-3 border-t border-slate-100">
-                        <div class="flex items-center gap-2">
-                            <button class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors flex-shrink-0">
-                                <i class="fas fa-paperclip text-xs"></i>
-                            </button>
-                            <input type="text" placeholder="Type your reply…" class="flex-1 bg-slate-100 rounded-lg px-3 py-2 text-[11px] outline-none text-slate-600 placeholder-slate-400">
-                            <button class="w-8 h-8 flex items-center justify-center rounded-lg bg-navy text-white hover:bg-accentBlue transition-colors flex-shrink-0">
-                                <i class="fas fa-paper-plane text-[10px]"></i>
-                            </button>
+                        <!-- Messages -->
+                        <div id="supportMessagesContainer" class="flex-1 overflow-y-auto thin-scroll p-4 space-y-3 bg-[#ECE5DD]">
+                            <!-- messages injected here -->
+                        </div>
+
+                        <!-- Input -->
+                        <div class="p-3 border-t border-slate-100 bg-white">
+                            <div class="flex items-center gap-2">
+                                <button class="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-[#EAEAEA] transition-colors flex-shrink-0">
+                                    <i class="fas fa-paperclip text-[10px]"></i>
+                                </button>
+                                <input type="text" id="supportReplyInput" placeholder="Type a message" class="flex-1 bg-[#EAEAEA] rounded-full px-4 py-2 text-[11px] outline-none text-slate-600 placeholder-slate-400">
+                                <button onclick="sendSupportReply()" class="w-8 h-8 flex items-center justify-center rounded-full bg-[#005BB5] text-white hover:bg-[#004A9A] transition-colors flex-shrink-0">
+                                    <i class="fas fa-paper-plane text-[10px]"></i>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1542,10 +2852,6 @@
 
         <!-- ================= TRANSACTIONS ================= -->
         <section id="admin-section-transactions" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Transactions</h2>
-                <p class="text-xs text-slate-400 mt-0.5">All financial transactions on the platform</p>
-            </div>
 
             <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
                 <div class="bg-white rounded-xl p-3 border border-slate-100">
@@ -1635,10 +2941,6 @@
 
         <!-- ================= PAYOUTS ================= -->
         <section id="admin-section-payouts" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Payouts</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Manage withdrawal requests from owners and agencies</p>
-            </div>
 
             <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 flex items-start gap-3">
                 <div class="w-9 h-9 rounded-lg bg-amber-500 flex items-center justify-center flex-shrink-0">
@@ -1743,10 +3045,6 @@
 
         <!-- ================= REVIEWS ================= -->
         <section id="admin-section-reviews" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Reviews Moderation</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Review and moderate user reviews</p>
-            </div>
 
             <div class="flex flex-wrap gap-2 mb-4">
                 <button class="admin-tab active">All (1,842)</button>
@@ -1829,10 +3127,6 @@
         <!-- ================= CATEGORIES ================= -->
         <section id="admin-section-categories" class="admin-section">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                <div>
-                    <h2 class="font-serif text-2xl text-navy font-semibold">Categories</h2>
-                    <p class="text-xs text-slate-400 mt-0.5">Manage property categories and types</p>
-                </div>
                 <button onclick="showToast('Add category form opened')" class="bg-navy text-white text-xs font-bold px-4 py-2.5 rounded-lg hover:bg-accentBlue transition-colors flex items-center gap-2 self-start sm:self-center">
                     <i class="fas fa-plus"></i> Add Category
                 </button>
@@ -1945,10 +3239,6 @@
         <!-- ================= LOCATIONS ================= -->
         <section id="admin-section-locations" class="admin-section">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-                <div>
-                    <h2 class="font-serif text-2xl text-navy font-semibold">Locations</h2>
-                    <p class="text-xs text-slate-400 mt-0.5">Manage cities, neighborhoods, and regions</p>
-                </div>
                 <button onclick="showToast('Add location form opened')" class="bg-navy text-white text-xs font-bold px-4 py-2.5 rounded-lg hover:bg-accentBlue transition-colors flex items-center gap-2 self-start sm:self-center">
                     <i class="fas fa-plus"></i> Add Location
                 </button>
@@ -2027,10 +3317,6 @@
 
         <!-- ================= REPORTS ================= -->
         <section id="admin-section-reports" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Reports & Analytics</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Platform performance and insights</p>
-            </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
                 <div class="bg-white rounded-2xl border border-slate-100 p-5">
@@ -2121,13 +3407,78 @@
             </div>
         </section>
 
-
-        <!-- ================= SETTINGS ================= -->
+        <script>
+            var supportBubbleChart = null;
+            function loadSupportBubbleChart() {
+                fetch('admin.php?ajax=support_bubble')
+                    .then(function(r) { return r.json(); })
+                    .then(function(data) {
+                        if (!data.success || !data.bubbles) return;
+                        var ctx = document.getElementById('supportBubbleChart');
+                        if (!ctx) return;
+                        if (supportBubbleChart) {
+                            supportBubbleChart.destroy();
+                        }
+                        var maxY = 0;
+                        data.bubbles.forEach(function(b) { if (b.y > maxY) maxY = b.y; });
+                        supportBubbleChart = new Chart(ctx.getContext('2d'), {
+                            type: 'bubble',
+                            data: {
+                                datasets: [{
+                                    data: data.bubbles.map(function(b) { return { x: b.x, y: b.y, r: b.r }; }),
+                                    backgroundColor: data.bubbles.map(function(b) { return b.color; }),
+                                    borderColor: '#ffffff',
+                                    borderWidth: 2,
+                                    hoverBackgroundColor: data.bubbles.map(function(b) { return b.color; }),
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function(context) {
+                                                var b = data.bubbles[context.dataIndex];
+                                                return b.label + ': ' + b.count + ' messages';
+                                            }
+                                        }
+                                    }
+                                },
+                                scales: {
+                                    x: {
+                                        type: 'linear',
+                                        position: 'bottom',
+                                        min: -1.5,
+                                        max: 1.5,
+                                        ticks: {
+                                            stepSize: 1,
+                                            callback: function(value) {
+                                                return value === -1 ? 'Senders' : (value === 1 ? 'Admins' : '');
+                                            }
+                                        },
+                                        title: { display: true, text: 'Sender ← → Admin', font: { size: 11, weight: 'bold' }, color: '#64748b' }
+                                    },
+                                    y: {
+                                        min: -0.5,
+                                        max: maxY + 0.5,
+                                        display: false
+                                    }
+                                },
+                                animation: {
+                                    duration: 1000,
+                                    easing: 'easeOutQuart'
+                                }
+                            }
+                        });
+                    });
+            }
+            document.addEventListener('DOMContentLoaded', function() {
+                loadSupportBubbleChart();
+            });
+        </script>
         <section id="admin-section-settings" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Platform Settings</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Configure platform-wide settings</p>
-            </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <!-- General settings -->
@@ -2293,10 +3644,6 @@
 
         <!-- ================= ACTIVITY LOG ================= -->
         <section id="admin-section-activity" class="admin-section">
-            <div class="mb-5">
-                <h2 class="font-serif text-2xl text-navy font-semibold">Activity Log</h2>
-                <p class="text-xs text-slate-400 mt-0.5">Complete history of platform events</p>
-            </div>
 
             <div class="bg-white rounded-2xl border border-slate-100 p-4 md:p-5">
                 <div class="flex items-center justify-between mb-4">
@@ -2450,6 +3797,15 @@ function showAdminSection(name, navEl) {
 
     // Close sidebar on mobile
     if (window.innerWidth < 1024) closeSidebar();
+
+    // Load support data when messages section is shown
+    if (name === 'messages') {
+        loadSupportConversations();
+    }
+    // Load booking connections when bookings section is shown
+    if (name === 'bookings') {
+        loadBookingConnections();
+    }
 }
 
 /* ============================================================

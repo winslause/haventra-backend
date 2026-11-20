@@ -1209,7 +1209,7 @@
                                 echo $displayName;
                             ?>
                         </span>
-                        <a href="<?= BASE_PATH ?>?page=profiles" class="btn-primary" style="padding: 10px 20px; font-size: 0.85rem;">Dashboard</a>
+                        <a href="<?= BASE_PATH ?>?page=<?= (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') ? 'admin' : 'profiles' ?>" class="btn-primary" style="padding: 10px 20px; font-size: 0.85rem;">Dashboard</a>
                     </div>
                 <?php else: ?>
                     <a href="<?= BASE_PATH ?>?page=register" class="btn-primary" id="getStartedBtn">Get Started</a>
@@ -1294,7 +1294,7 @@
                                 echo $displayName;
                             ?>
                         </span>
-                        <a href="<?= BASE_PATH ?>?page=profiles" class="btn-primary">Dashboard</a>
+                        <a href="<?= BASE_PATH ?>?page=<?= (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') ? 'admin' : 'profiles' ?>" class="btn-primary">Dashboard</a>
                     </div>
                 <?php else: ?>
                     <a href="<?= BASE_PATH ?>?page=login" class="btn-login">Sign In</a>

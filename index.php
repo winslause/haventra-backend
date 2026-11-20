@@ -121,6 +121,7 @@ $pageMap = [
     'real-estate-marketplace' => 'marketplace.php',
     'search' => 'search.php',
     'messages' => 'messages.php',
+    'admin' => 'admin.php',
 ];
 
 $viewFile = $pageMap[$page] ?? 'home.php';
@@ -134,7 +135,7 @@ if (in_array($page, ['marketplace','realestate-marketplace','real-estate-marketp
 }
 
 
-$standalone_pages = ['profile','profiles','dashboard'];
+$standalone_pages = ['profile','profiles','dashboard','admin'];
 if (file_exists($viewPath)) {
     if (in_array($page, $standalone_pages, true)) {
         // Dashboard renders its own full HTML/layout and uses $pdo.
