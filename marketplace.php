@@ -116,6 +116,32 @@ $graph = [
   .line-clamp-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .skeleton{background:linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 37%,#f1f5f9 63%);background-size:400% 100%;animation:sk 1.2s ease infinite}
   @keyframes sk{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
+    /* ===== VIDEO LAZY-LOADING ===== */
+    .video-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .video-poster {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: opacity 0.3s ease;
+    }
+    .video-player {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .youtube-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .pointer-events-none {
+        pointer-events: none;
+    }
 </style>
 
 <section class="mkt-hero relative px-4 md:px-6 pt-8 pb-14 md:pt-12 md:pb-20 overflow-hidden">
@@ -239,12 +265,22 @@ foreach ($items as $it) {
     $rating = !empty($it['rating']) ? '<div class="hidden sm:flex items-center gap-1 text-[11px]"><span class="text-amber-500"><i class="fas fa-star" aria-hidden="true"></i></span><span class="font-bold text-navy">'.number_format((float)$it['rating'],1).'</span><span class="text-gray-400">('.(int)$it['reviews'].')</span></div>' : '';
     $phone = !empty($it['phone']) ? '<a href="tel:'.$e(preg_replace('/\s+/','',(string)$it['phone'])).'" class="w-8 md:w-10 h-8 md:h-9 rounded-lg border border-gray-200 flex items-center justify-center text-gray-600 hover:border-[#005BB5] hover:text-[#005BB5]" aria-label="Call '.$e($it['title']).'"><i class="fas fa-phone text-[10px] md:text-xs" aria-hidden="true"></i></a>' : '';
     echo '<article class="mkt-card flex flex-col" '.$data.' itemscope itemtype="https://schema.org/'.($it['agencyCategory']==='cleaning'?'LocalBusiness':'RealEstateAgent').'" data-open="'.$e($it['id']).'"><a href="'.$e($href).'" class="block mkt-open" data-open="'.$e($it['id']).'" itemprop="url"><div class="relative h-28 sm:h-36 md:h-44 overflow-hidden bg-gray-100">'.$logo.$ver.'</div></a><div class="p-2.5 md:p-4 flex flex-col flex-1"><div class="flex items-center justify-between gap-1 mb-1 md:mb-2"><span class="px-2 py-1 rounded-full text-[8px] md:text-[10px] font-bold '.$bc.'">'.$e($it['agencyCategoryLabel']).'</span>'.$rating.'</div><h3 class="font-serif text-[13px] md:text-lg text-navy font-semibold leading-tight line-clamp-1" itemprop="name"><a href="'.$e($href).'" class="hover:text-[#005BB5] mkt-open" data-open="'.$e($it['id']).'">'.$e($it['title']).'</a></h3><p class="text-[9px] md:text-[11px] text-gray-500 mt-0.5 md:mt-1 line-clamp-1" itemprop="address"><i class="fas fa-map-marker-alt text-[#005BB5] mr-0.5" aria-hidden="true"></i>'.$e($it['location']).'</p><p class="hidden md:block text-xs text-gray-600 mt-2 line-clamp-2" itemprop="description">'.$e($it['desc']).'</p><div class="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-100 flex items-center justify-between gap-1 text-[8px] md:text-[10px] text-gray-500"><span class="truncate"><i class="fas fa-briefcase text-[#005BB5] mr-0.5" aria-hidden="true"></i>'.$e($it['yearsLabel']?:((int)$it['years'].'+')).'</span><span class="hidden sm:inline"><i class="fas fa-users text-[#005BB5] mr-0.5" aria-hidden="true"></i>'.$e($it['clients']).'</span><span class="text-emerald-600 font-bold">'.$e($it['satisfaction']).'</span></div><div class="mt-2 md:mt-3 flex gap-1.5 md:gap-2"><a href="'.$e($href).'" class="flex-1 text-center py-1.5 md:py-2 rounded-lg bg-[#00215E] text-white text-[10px] md:text-xs font-bold hover:bg-[#005BB5] transition mkt-open" data-open="'.$e($it['id']).'">View</a>'.$phone.'</div></div></article>';
-  } else {
-    $imgHtml = $img ? '<img src="'.$e($img).'" alt="'.$e($it['title'].' - '.$it['propertyTypeLabel'].' in '.$it['location']).'" loading="lazy" decoding="async" width="400" height="220" class="mkt-img w-full h-full object-cover" itemprop="image">' : '<div class="w-full h-full skeleton"></div>';
+} else {
+    $videoUrl = isset($it['video_url']) ? (string)$it['video_url'] : '';
+    $hasVideo = !empty($videoUrl);
+    if ($hasVideo) {
+        $videoId = 'mkt-video-' . $it['id'];
+        $imgHtml = '<div class="video-wrapper w-full h-full" data-video-src="'.$e($videoUrl).'" data-poster="'.$e($img).'">
+            <img src="'.$e($img).'" alt="'.$e($it['title'].' - '.$it['propertyTypeLabel'].' in '.$it['location']).'" loading="lazy" decoding="async" width="400" height="220" class="video-poster w-full h-full object-cover">
+            <video id="'.$videoId.'" class="video-player absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" muted playsinline loop preload="none"></video>
+        </div>';
+    } else {
+        $imgHtml = $img ? '<img src="'.$e($img).'" alt="'.$e($it['title'].' - '.$it['propertyTypeLabel'].' in '.$it['location']).'" loading="lazy" decoding="async" width="400" height="220" class="mkt-img w-full h-full object-cover" itemprop="image">' : '<div class="w-full h-full skeleton"></div>';
+    }
     $bmap=['rent'=>'bg-emerald-100 text-emerald-700','booking'=>'bg-orange-100 text-orange-700','sale'=>'bg-indigo-100 text-indigo-700']; $bc=$bmap[$it['propertyType']]??$bmap['rent'];
     $sz = !empty($it['size']) ? '<span class="hidden sm:inline"><i class="fas fa-ruler-combined mr-0.5 text-[#005BB5]" aria-hidden="true"></i>'.$e($it['size']).'</span>' : '';
     echo '<article class="mkt-card flex flex-col" '.$data.' itemscope itemtype="https://schema.org/RealEstateListing" data-open="'.$e($it['id']).'"><a href="'.$e($href).'" class="block mkt-open" data-open="'.$e($it['id']).'" itemprop="url"><div class="relative h-28 sm:h-36 md:h-44 overflow-hidden bg-gray-100">'.$imgHtml.'<div class="absolute top-1.5 left-1.5 md:top-3 md:left-3"><span class="px-2 py-1 rounded-full text-[8px] md:text-[10px] font-bold '.$bc.'">'.$e($it['propertyTypeLabel']?:$it['badge']).'</span></div></div></a><div class="p-2.5 md:p-4 flex flex-col flex-1"><h3 class="font-serif text-[13px] md:text-lg text-navy font-semibold leading-tight line-clamp-1" itemprop="name"><a href="'.$e($href).'" class="hover:text-[#005BB5] mkt-open" data-open="'.$e($it['id']).'">'.$e($it['title']).'</a></h3><p class="text-[9px] md:text-[11px] text-gray-500 mt-0.5 md:mt-1 line-clamp-1" itemprop="address"><i class="fas fa-map-marker-alt text-[#005BB5] mr-0.5" aria-hidden="true"></i>'.$e($it['location']).'</p><div class="flex items-center gap-2 md:gap-3 text-[9px] md:text-[10px] text-gray-500 mt-1.5 md:mt-2"><span><i class="fas fa-bed mr-0.5 text-[#005BB5]" aria-hidden="true"></i>'.(int)$it['beds'].'</span><span><i class="fas fa-bath mr-0.5 text-[#005BB5]" aria-hidden="true"></i>'.(int)$it['baths'].'</span>'.$sz.'</div><div class="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-100 flex items-end justify-between gap-1.5 md:gap-2" itemprop="offers" itemscope itemtype="https://schema.org/Offer"><meta itemprop="priceCurrency" content="KES"><meta itemprop="price" content="'.(int)$it['price'].'"><div class="min-w-0"><div class="text-[12px] sm:text-sm md:text-lg font-extrabold text-navy truncate">'.$e($it['priceText']).'</div></div><a href="'.$e($href).'" class="px-2 md:px-3 py-1.5 md:py-2 rounded-lg bg-gray-900 text-white text-[10px] md:text-[11px] font-bold hover:bg-[#005BB5] transition shrink-0 mkt-open" data-open="'.$e($it['id']).'">View</a></div></div></article>';
-  }
+}
 }
 ?>
         </div>
@@ -266,7 +302,7 @@ foreach ($items as $it) {
       </div>
       <div class="grid grid-cols-1 lg:grid-cols-5">
         <div class="lg:col-span-3 bg-gray-100">
-          <div class="relative h-56 sm:h-72 md:h-[380px]"><img id="mktPropImg" src="" alt="" class="w-full h-full object-cover"><button id="mktPropPrev" type="button" class="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 text-navy shadow"><i class="fas fa-chevron-left"></i></button><button id="mktPropNext" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 text-navy shadow"><i class="fas fa-chevron-right"></i></button><div id="mktPropCount" class="absolute bottom-2 right-2 text-[10px] font-bold bg-black/55 text-white px-2 py-1 rounded-full"></div></div>
+          <div class="relative h-56 sm:h-72 md:h-[380px]"><div id="mktPropMedia" class="w-full h-full"><!-- Main image or video injected via JS --></div><button id="mktPropPrev" type="button" class="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 text-navy shadow"><i class="fas fa-chevron-left"></i></button><button id="mktPropNext" type="button" class="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 text-navy shadow"><i class="fas fa-chevron-right"></i></button><div id="mktPropCount" class="absolute bottom-2 right-2 text-[10px] font-bold bg-black/55 text-white px-2 py-1 rounded-full"></div></div>
           <div id="mktPropThumbs" class="flex gap-2 p-2 overflow-x-auto bg-white border-t border-gray-100"></div>
         </div>
         <div class="lg:col-span-2 p-4 md:p-5 max-h-[70vh] overflow-y-auto">
@@ -442,7 +478,12 @@ const MKT_INITIAL = <?php echo json_encode($initial, JSON_UNESCAPED_UNICODE|JSON
   document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ closeModal('prop'); closeModal('agency'); }});
 
   function openProperty(id){
-    const it=byId[id]; if(!it) return; mktCurProp=it; mktImgs=Array.isArray(it.images)&&it.images.length?it.images:(it.image?[it.image]:[]); mktSlide=0;
+    const it=byId[id]; if(!it) return; mktCurProp=it; 
+    const media = [];
+    if (it.video_url) media.push({ type: 'video', src: it.video_url });
+    if (Array.isArray(it.images) && it.images.length) it.images.forEach(img => media.push({ type: 'image', src: img }));
+    else if (it.image) media.push({ type: 'image', src: it.image });
+    mktImgs = media; mktSlide = 0;
     $('mktPropTitle').textContent=it.title||''; $('mktPropLoc').innerHTML='<i class="fas fa-map-marker-alt text-[#005BB5] mr-1"></i>'+esc(it.location||'');
     $('mktPropBadge').innerHTML=it.propertyTypeLabel?`<span class="px-2 py-1 rounded-full text-[10px] font-bold ${it.propertyType==='booking'?'bg-orange-100 text-orange-700':it.propertyType==='sale'?'bg-indigo-100 text-indigo-700':'bg-emerald-100 text-emerald-700'}">${esc(it.propertyTypeLabel)}</span>`:'';
     $('mktPropPrice').textContent=it.priceText||''; $('mktPropMeta').innerHTML=`<span><i class="fas fa-bed mr-1 text-[#005BB5]"></i>${it.beds||0} beds</span><span><i class="fas fa-bath mr-1 text-[#005BB5]"></i>${it.baths||0} baths</span>${it.size?`<span><i class="fas fa-ruler-combined mr-1 text-[#005BB5]"></i>${esc(it.size)}</span>`:''}`;
@@ -454,9 +495,63 @@ const MKT_INITIAL = <?php echo json_encode($initial, JSON_UNESCAPED_UNICODE|JSON
     if(hasMap){ ensureLeaflet(()=>requestAnimationFrame(()=>{ try{ if(mktMap){mktMap.remove();} mktMap=L.map('mktPropMap',{scrollWheelZoom:false}).setView([Number(it.lat),Number(it.lng)],14); L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(mktMap); mktMarker=L.marker([Number(it.lat),Number(it.lng)]).addTo(mktMap).bindPopup(esc(it.title||'Property')); setTimeout(()=>mktMap&&mktMap.invalidateSize(),120);}catch(e){} })); }
   }
   function renderPropSlide(){
-    $('mktPropImg').src=mktImgs[mktSlide]||''; $('mktPropImg').alt=(mktCurProp?.title||'Property')+' image';
-    $('mktPropCount').textContent=mktImgs.length?(mktSlide+1)+' / '+mktImgs.length:'';
-    $('mktPropThumbs').innerHTML=mktImgs.map((src,i)=>`<button type="button" data-ms="${i}" class="w-14 h-10 rounded-lg overflow-hidden border-2 ${i===mktSlide?'border-[#005BB5]':'border-transparent'} shrink-0"><img src="${esc(src)}" alt="" class="w-full h-full object-cover" loading="lazy"></button>`).join('');
+    const media = mktImgs[mktSlide] || { type: 'image', src: '' };
+    const container = $('mktPropMedia');
+    if (media.type === 'video') {
+        const isYouTube = media.src.includes('youtube.com') || media.src.includes('youtu.be');
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = media.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            if (videoId) {
+                const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+                container.innerHTML = `
+                    <div class="youtube-wrapper relative w-full h-full">
+                        <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `<video src="${esc(media.src)}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+            }
+        } else {
+            container.innerHTML = `<video src="${esc(media.src)}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+        }
+    } else {
+        container.innerHTML = `<img src="${esc(media.src)}" alt="" class="w-full h-full object-cover">`;
+    }
+    $('mktPropCount').textContent = mktImgs.length ? (mktSlide+1) + ' / ' + mktImgs.length : '';
+    $('mktPropThumbs').innerHTML = mktImgs.map((m, i) => {
+        const isYouTube = m.type === 'video' && (m.src.includes('youtube.com') || m.src.includes('youtu.be'));
+        let thumbHtml;
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = m.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            const ytThumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : (m.type === 'image' ? m.src : (mktImgs[0]?.src || ''));
+            thumbHtml = `<img src="${esc(ytThumb)}" alt="" class="w-full h-full object-cover" loading="lazy">`;
+        } else if (m.type === 'video') {
+            thumbHtml = `<video src="${esc(m.src)}" muted playsinline class="w-full h-full object-cover" poster="${mktImgs[0]?.src || ''}"></video>`;
+        } else {
+            thumbHtml = `<img src="${esc(m.src)}" alt="" class="w-full h-full object-cover" loading="lazy">`;
+        }
+        return `<button type="button" data-ms="${i}" class="w-14 h-10 rounded-lg overflow-hidden border-2 ${i===mktSlide?'border-[#005BB5]':'border-transparent'} shrink-0">${thumbHtml}</button>`;
+    }).join('');
     $('mktPropThumbs').querySelectorAll('[data-ms]').forEach(b=>b.addEventListener('click',()=>{mktSlide=Number(b.dataset.ms)||0; renderPropSlide();}));
   }
   $('mktPropPrev').addEventListener('click',()=>{ if(!mktImgs.length) return; mktSlide=(mktSlide-1+mktImgs.length)%mktImgs.length; renderPropSlide(); });
@@ -495,5 +590,81 @@ const MKT_INITIAL = <?php echo json_encode($initial, JSON_UNESCAPED_UNICODE|JSON
   }
   bindModalOpener();
   render();
+
+  /* ===== LAZY-LOAD VIDEOS WITH INTERSECTION OBSERVER ===== */
+  document.addEventListener('DOMContentLoaded', function() {
+    const videoWrappers = document.querySelectorAll('.video-wrapper');
+    
+    if (!('IntersectionObserver' in window)) {
+      videoWrappers.forEach(initVideo);
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          initVideo(entry.target);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, {
+      rootMargin: '100px',
+      threshold: 0.1
+    });
+
+    videoWrappers.forEach(wrapper => observer.observe(wrapper));
+  });
+
+  function initVideo(wrapper) {
+    const video = wrapper.querySelector('.video-player');
+    const poster = wrapper.querySelector('.video-poster');
+    const videoSrc = wrapper.dataset.videoSrc;
+    
+    if (!video || !videoSrc || video.dataset.loaded === 'true') return;
+    
+    video.dataset.loaded = 'true';
+    
+    const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
+    
+    if (isYouTube) {
+      let videoId = '';
+      const patterns = [
+        /(?:youtube\.com\/shorts\/)([^?&]+)/,
+        /(?:youtube\.com\/watch\?v=)([^&]+)/,
+        /(?:youtu\.be\/)([^?&]+)/,
+        /(?:youtube\.com\/embed\/)([^?&]+)/
+      ];
+      for (const pattern of patterns) {
+        const match = videoSrc.match(pattern);
+        if (match) { videoId = match[1]; break; }
+      }
+      if (videoId) {
+        const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+        wrapper.innerHTML = `
+          <div class="youtube-wrapper relative w-full h-full">
+            <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+          </div>
+        `;
+        if (poster) poster.style.display = 'none';
+      }
+      return;
+    }
+    
+    video.preload = 'metadata';
+    video.src = videoSrc;
+    
+    video.addEventListener('loadeddata', function() {
+      video.classList.remove('opacity-0');
+      video.classList.add('opacity-100');
+      if (poster) poster.style.display = 'none';
+      video.play().catch(() => {});
+    });
+    
+    video.addEventListener('error', function() {
+      if (poster) poster.style.display = 'block';
+    });
+    
+    video.load();
+  }
 })();
 </script>

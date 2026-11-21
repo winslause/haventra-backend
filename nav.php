@@ -1185,9 +1185,9 @@
                 </li>
 
                 <!-- Menu 5: Contact Us -->
-                <li class="nav-item">
+                <!-- <li class="nav-item">
                     <a href="<?= BASE_PATH ?>?page=contact" class="nav-link text-[#F59E0B] font-bold">Contact Us</a>
-                </li>
+                </li> -->
             </ul>
 
             <!-- DESKTOP ACTIONS -->
