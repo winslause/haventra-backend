@@ -41,7 +41,8 @@ try {
           'price'=>(int)str_replace([',',' '],'',(string)$r['price']),'priceText'=>'KSh '.(string)$r['price'].($r['price_suffix']?' '.(string)$r['price_suffix']:''),
           'badge'=>(string)($r['badge']?:$ptypeLabel),'propertyType'=>$ptype,'propertyTypeLabel'=>$ptypeLabel,'beds'=>(int)$r['beds'],'baths'=>(int)$r['baths'],
           'size'=>(string)($r['size']??''),'image'=>(string)($images[0]??''),'images'=>array_values($images),'amenities'=>$amenOut,
-          'desc'=>(string)($r['description']??''),'lat'=>$r['lat']!==null?(float)$r['lat']:null,'lng'=>$r['lng']!==null?(float)$r['lng']:null,'url'=>$url
+          'desc'=>(string)($r['description']??''),'lat'=>$r['lat']!==null?(float)$r['lat']:null,'lng'=>$r['lng']!==null?(float)$r['lng']:null,'url'=>$url,
+          'video_url' => $r['video_url'] ?? null,
         ];
     }
 } catch (Throwable $e) {}

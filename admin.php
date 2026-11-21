@@ -860,7 +860,7 @@ try {
 
     <!-- Logout -->
     <div class="px-4 py-3 border-t border-white/10">
-        <button class="w-full flex items-center gap-2 text-xs text-white/60 hover:text-red-400 font-medium transition-colors">
+        <button onclick="adminLogout()" class="w-full flex items-center gap-2 text-xs text-white/60 hover:text-red-400 font-medium transition-colors">
             <i class="fas fa-sign-out-alt"></i>
             <span>Sign Out</span>
         </button>
@@ -3806,6 +3806,23 @@ function showAdminSection(name, navEl) {
     if (name === 'bookings') {
         loadBookingConnections();
     }
+}
+
+function adminLogout() {
+    fetch('api/auth.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: 'action=logout'
+    }).then(function(r) { return r.json(); }).then(function(result) {
+        if (result.success) {
+            window.location.href = 'index.php';
+        } else {
+            showToast('Logout failed: ' + (result.message || 'Unknown error'));
+        }
+    }).catch(function() {
+        // Fallback: direct navigation
+        window.location.href = 'index.php?page=logout';
+    });
 }
 
 /* ============================================================

@@ -200,17 +200,27 @@ $typeColors = [
 ];
 
 // Limit to 4 per type
-foreach ($featuredByType as $type => &$props) {
-    $props = array_slice($props, 0, 4);
-}
-unset($props);
-?>
+    foreach ($featuredByType as $type => &$props) {
+        $props = array_slice($props, 0, 4);
+    }
+    unset($props);
+    ?>
             <!-- 1. FOR RENT -->
             <div id="for-rent" class="featured-content featured-carousel">
-                <?php foreach (($featuredByType['rent'] ?? []) as $prop): ?>
+                <?php foreach (($featuredByType['rent'] ?? []) as $prop): 
+                    $poster = !empty($prop['image_urls']) ? json_decode($prop['image_urls'], true)[0] : $prop['image_url'];
+                    $videoId = 'video-prop-' . $prop['id'];
+                ?>
                 <div class="featured-card group" onclick="openFeaturedModal('prop-<?php echo $prop['id']; ?>')">
                     <div class="relative h-56 overflow-hidden rounded-t-2xl">
-                        <img src="<?php echo htmlspecialchars($prop['image_url']); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                        <?php if (!empty($prop['video_url'])): ?>
+                            <div class="video-wrapper w-full h-full" data-video-src="<?php echo htmlspecialchars($prop['video_url']); ?>" data-poster="<?php echo htmlspecialchars($poster); ?>">
+                                <img src="<?php echo htmlspecialchars($poster); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="video-poster w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                                <video id="<?php echo $videoId; ?>" class="video-player absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" muted playsinline loop preload="none"></video>
+                            </div>
+                        <?php else: ?>
+                            <img src="<?php echo htmlspecialchars($prop['image_url']); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                        <?php endif; ?>
                         <div class="absolute top-3 left-3 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold text-[#3f352e]"><?php echo htmlspecialchars($prop['badge']); ?></div>
                     </div>
                     <div class="p-4 bg-white rounded-b-2xl border border-t-0 border-[#4a90a0]/10">
@@ -230,10 +240,20 @@ unset($props);
 
             <!-- 2. FOR SALE (Latest 4) - Hidden by default -->
             <div id="for-sale" class="featured-content featured-carousel hidden">
-                <?php foreach (($featuredByType['sale'] ?? []) as $prop): ?>
+                <?php foreach (($featuredByType['sale'] ?? []) as $prop): 
+                    $poster = !empty($prop['image_urls']) ? json_decode($prop['image_urls'], true)[0] : $prop['image_url'];
+                    $videoId = 'video-prop-' . $prop['id'];
+                ?>
                 <div class="featured-card group" onclick="openFeaturedModal('prop-<?php echo $prop['id']; ?>')">
                     <div class="relative h-56 overflow-hidden rounded-t-2xl">
-                        <img src="<?php echo htmlspecialchars($prop['image_url']); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                        <?php if (!empty($prop['video_url'])): ?>
+                            <div class="video-wrapper w-full h-full" data-video-src="<?php echo htmlspecialchars($prop['video_url']); ?>" data-poster="<?php echo htmlspecialchars($poster); ?>">
+                                <img src="<?php echo htmlspecialchars($poster); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="video-poster w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                                <video id="<?php echo $videoId; ?>" class="video-player absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" muted playsinline loop preload="none"></video>
+                            </div>
+                        <?php else: ?>
+                            <img src="<?php echo htmlspecialchars($prop['image_url']); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                        <?php endif; ?>
                         <div class="absolute top-3 left-3 bg-[#F59E0B] text-white backdrop-blur px-3 py-1 rounded-full text-xs font-semibold"><?php echo htmlspecialchars($prop['badge']); ?></div>
                     </div>
                     <div class="p-4 bg-white rounded-b-2xl border border-t-0 border-[#4a90a0]/10">
@@ -253,10 +273,20 @@ unset($props);
 
             <!-- 3. FOR BOOKING (Latest 4) - Hidden by default -->
             <div id="for-booking" class="featured-content featured-carousel hidden">
-                <?php foreach (($featuredByType['booking'] ?? []) as $prop): ?>
+                <?php foreach (($featuredByType['booking'] ?? []) as $prop): 
+                    $poster = !empty($prop['image_urls']) ? json_decode($prop['image_urls'], true)[0] : $prop['image_url'];
+                    $videoId = 'video-prop-' . $prop['id'];
+                ?>
                 <div class="featured-card group" onclick="openFeaturedModal('prop-<?php echo $prop['id']; ?>')">
                     <div class="relative h-56 overflow-hidden rounded-t-2xl">
-                        <img src="<?php echo htmlspecialchars($prop['image_url']); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                        <?php if (!empty($prop['video_url'])): ?>
+                            <div class="video-wrapper w-full h-full" data-video-src="<?php echo htmlspecialchars($prop['video_url']); ?>" data-poster="<?php echo htmlspecialchars($poster); ?>">
+                                <img src="<?php echo htmlspecialchars($poster); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="video-poster w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                                <video id="<?php echo $videoId; ?>" class="video-player absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" muted playsinline loop preload="none"></video>
+                            </div>
+                        <?php else: ?>
+                            <img src="<?php echo htmlspecialchars($prop['image_url']); ?>" alt="<?php echo htmlspecialchars($prop['title']); ?>" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
+                        <?php endif; ?>
                         <div class="absolute top-3 left-3 bg-[#005BB5] text-white backdrop-blur px-3 py-1 rounded-full text-xs font-semibold"><?php echo htmlspecialchars($prop['badge']); ?></div>
                     </div>
                     <div class="p-4 bg-white rounded-b-2xl border border-t-0 border-[#4a90a0]/10">
@@ -293,7 +323,9 @@ unset($props);
                 <!-- Left Column - Gallery -->
                 <div>
                     <div class="relative rounded-xl md:rounded-2xl overflow-hidden h-[250px] md:h-[400px]">
-                        <img id="featuredMainImage" src="" alt="Property Image" class="w-full h-full object-cover transition-opacity duration-500">
+                        <div id="featuredMainMedia" class="w-full h-full">
+                            <!-- Main image or video injected via JS -->
+                        </div>
                     </div>
                     
                     <!-- Thumbnails -->
@@ -499,27 +531,76 @@ unset($props);
     }
 
     /* Thumbnail specific styles */
-    .featured-thumb {
+    .featured-thumb-wrapper {
         width: 60px;
         height: 45px;
-        object-fit: cover;
         border-radius: 6px;
         cursor: pointer;
         transition: all 0.3s ease;
         border: 2px solid transparent;
         flex-shrink: 0;
+        overflow: hidden;
+        position: relative;
     }
     @media (min-width: 768px) {
-        .featured-thumb { width: 80px; height: 60px; border-radius: 8px; }
+        .featured-thumb-wrapper { width: 80px; height: 60px; border-radius: 8px; }
+    }
+    .featured-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    /* Video lazy-loading styles */
+    .video-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .video-poster {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: opacity 0.3s ease;
+    }
+    .video-player {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .video-badge {
+        z-index: 10;
     }
     /* Modal logo image */
     #agencyModalLogo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .featured-thumb:hover {
+    .featured-thumb-wrapper:hover {
         transform: scale(1.05);
     }
-    .featured-thumb.active {
+    .featured-thumb-wrapper.active {
         border-color: #4a90a0;
         transform: scale(1.05);
+    }
+    .video-badge {
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 2px 4px;
+        border-radius: 3px;
+        font-size: 8px;
+    }
+    @media (min-width: 768px) {
+        .video-badge { padding: 3px 6px; font-size: 10px; }
+    }
+    .youtube-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .pointer-events-none {
+        pointer-events: none;
     }
 </style>
 
@@ -572,6 +653,7 @@ unset($props);
                 'desc' => $row['description'],
                 'amenities' => $amenities,
                 'images' => $images,
+                'video_url' => $row['video_url'],
                 'lat' => (float)$row['lat'],
                 'lng' => (float)$row['lng'],
             ];
@@ -650,19 +732,55 @@ unset($props);
             </span>
         `).join('');
 
-        document.getElementById('featuredMainImage').src = data.images[0];
+        // Build media array: video first if exists, then images
+        const media = [];
+        if (data.video_url) {
+            media.push({ type: 'video', src: data.video_url });
+        }
+        data.images.forEach(img => media.push({ type: 'image', src: img }));
 
+        // Render main media
+        renderMainMedia(media[0]);
+
+        // Render thumbnails
         const thumbContainer = document.getElementById('featuredThumbnails');
-        thumbContainer.innerHTML = data.images.map((img, index) => `
-            <img src="${img}" class="featured-thumb ${index === 0 ? 'active' : ''}" onclick="changeFeaturedImage(this, '${img}', ${index})">
-        `).join('');
+        thumbContainer.innerHTML = media.map((m, index) => {
+            const isYouTube = m.type === 'video' && (m.src.includes('youtube.com') || m.src.includes('youtu.be'));
+            let thumbHtml;
+            if (isYouTube) {
+                // Extract YouTube ID for thumbnail
+                let videoId = '';
+                const patterns = [
+                    /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                    /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                    /(?:youtu\.be\/)([^?&]+)/,
+                    /(?:youtube\.com\/embed\/)([^?&]+)/
+                ];
+                for (const pattern of patterns) {
+                    const match = m.src.match(pattern);
+                    if (match) { videoId = match[1]; break; }
+                }
+                const ytThumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : data.images[0];
+                thumbHtml = `<img src="${ytThumb}" class="featured-thumb" alt="Video thumbnail">`;
+            } else if (m.type === 'video') {
+                thumbHtml = `<video src="${m.src}" muted playsinline class="featured-thumb" poster="${data.images[0]}"></video>`;
+            } else {
+                thumbHtml = `<img src="${m.src}" class="featured-thumb">`;
+            }
+            return `
+                <div class="featured-thumb-wrapper ${index === 0 ? 'active' : ''}" onclick="changeFeaturedMedia(this, ${index})">
+                    ${thumbHtml}
+                    ${m.type === 'video' ? '<span class="video-badge"><i class="fas fa-play"></i></span>' : ''}
+                </div>
+            `;
+        }).join('');
 
         const modal = document.getElementById('featuredModal');
         modal.classList.remove('hidden');
         setTimeout(() => { modal.classList.add('show'); }, 10);
         document.body.style.overflow = 'hidden';
 
-        startFeaturedSlideshow(data.images);
+        startFeaturedSlideshow(media);
 
         // Initialize map with property location
         if (data.lat && data.lng) {
@@ -670,6 +788,117 @@ unset($props);
         } else {
             closeFeaturedMap();
         }
+    }
+
+    // Render main media (image or video)
+    function renderMainMedia(media) {
+        const container = document.getElementById('featuredMainMedia');
+        if (media.type === 'video') {
+            const isYouTube = media.src.includes('youtube.com') || media.src.includes('youtu.be');
+            if (isYouTube) {
+                // Extract YouTube video ID
+                let videoId = '';
+                const patterns = [
+                    /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                    /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                    /(?:youtu\.be\/)([^?&]+)/,
+                    /(?:youtube\.com\/embed\/)([^?&]+)/
+                ];
+                for (const pattern of patterns) {
+                    const match = media.src.match(pattern);
+                    if (match) { videoId = match[1]; break; }
+                }
+                if (videoId) {
+                    const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+                    container.innerHTML = `
+                        <div class="youtube-wrapper relative w-full h-full">
+                            <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                        </div>
+                    `;
+                } else {
+                    // Fallback to video tag
+                    container.innerHTML = `
+                        <video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>
+                    `;
+                }
+            } else {
+                // Direct video file
+                container.innerHTML = `
+                    <video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>
+                `;
+            }
+        } else {
+            container.innerHTML = `
+                <img src="${media.src}" alt="Property Image" class="w-full h-full object-cover transition-opacity duration-500">
+            `;
+        }
+    }
+
+    // Change main media
+    function changeFeaturedMedia(wrapper, index) {
+        const data = featuredData[Object.keys(featuredData).find(k => featuredData[k].title === document.getElementById('featuredTitle').textContent)];
+        if (!data) return;
+
+        const media = [];
+        if (data.video_url) media.push({ type: 'video', src: data.video_url });
+        data.images.forEach(img => media.push({ type: 'image', src: img }));
+
+        renderMainMedia(media[index]);
+
+        document.querySelectorAll('.featured-thumb-wrapper').forEach(w => w.classList.remove('active'));
+        wrapper.classList.add('active');
+    }
+
+    // 7. Auto Slideshow inside Modal
+    function startFeaturedSlideshow(media) {
+        if (featuredSlideInterval) clearInterval(featuredSlideInterval);
+        
+        let currentIndex = 0;
+        const activeWrapper = document.querySelector('.featured-thumb-wrapper.active');
+        if (activeWrapper) {
+            const wrappers = Array.from(document.querySelectorAll('.featured-thumb-wrapper'));
+            currentIndex = wrappers.indexOf(activeWrapper);
+        }
+
+        let isWaitingForVideo = false;
+        const container = document.getElementById('featuredMainMedia');
+
+        function advanceSlide() {
+            if (isWaitingForVideo) return;
+            
+            currentIndex = (currentIndex + 1) % media.length;
+            renderMainMedia(media[currentIndex]);
+
+            const wrappers = document.querySelectorAll('.featured-thumb-wrapper');
+            wrappers.forEach((w, i) => {
+                if (i === currentIndex) w.classList.add('active');
+                else w.classList.remove('active');
+            });
+
+            // Check if new media is a video
+            const currentMedia = media[currentIndex];
+            if (currentMedia.type === 'video') {
+                isWaitingForVideo = true;
+                const videoEl = container.querySelector('video');
+                const iframe = container.querySelector('iframe');
+                
+                if (videoEl) {
+                    // Direct video file - wait for ended event
+                    videoEl.onended = function() {
+                        isWaitingForVideo = false;
+                        advanceSlide();
+                    };
+                    // Fallback timeout in case ended doesn't fire
+                    setTimeout(() => { isWaitingForVideo = false; }, 30000);
+                } else if (iframe) {
+                    // YouTube iframe - estimate duration (default 60s for Shorts)
+                    // Since we can't detect end reliably without YouTube API
+                    setTimeout(() => { isWaitingForVideo = false; }, 65000);
+                }
+            }
+        }
+
+        featuredSlideInterval = setInterval(advanceSlide, 5000); // Base interval for images
     }
 
     // 5. Close Modal
@@ -682,50 +911,6 @@ unset($props);
         closeFeaturedMap();
     }
 
-    // 6. Change Image
-    function changeFeaturedImage(thumbnail, src, index) {
-        const mainImage = document.getElementById('featuredMainImage');
-        mainImage.style.opacity = '0';
-        setTimeout(() => {
-            mainImage.src = src;
-            mainImage.style.opacity = '1';
-        }, 200);
-
-        document.querySelectorAll('.featured-thumb').forEach(t => t.classList.remove('active'));
-        thumbnail.classList.add('active');
-    }
-
-    // 7. Auto Slideshow inside Modal
-    function startFeaturedSlideshow(images) {
-        if (featuredSlideInterval) clearInterval(featuredSlideInterval);
-        
-        let currentIndex = 0;
-        const activeThumb = document.querySelector('.featured-thumb.active');
-        if (activeThumb) {
-            const thumbs = Array.from(document.querySelectorAll('.featured-thumb'));
-            currentIndex = thumbs.indexOf(activeThumb);
-        }
-
-        featuredSlideInterval = setInterval(() => {
-            currentIndex = (currentIndex + 1) % images.length;
-            const mainImage = document.getElementById('featuredMainImage');
-            const thumbs = document.querySelectorAll('.featured-thumb');
-            
-            if (mainImage) {
-                mainImage.style.opacity = '0';
-                setTimeout(() => {
-                    mainImage.src = images[currentIndex];
-                    mainImage.style.opacity = '1';
-                }, 200);
-
-                thumbs.forEach((t, i) => {
-                    if (i === currentIndex) t.classList.add('active');
-                    else t.classList.remove('active');
-                });
-            }
-        }, 4000);
-    }
-
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') closeFeaturedModal();
     });
@@ -733,6 +918,111 @@ unset($props);
     document.getElementById('featuredModal').addEventListener('click', function(e) {
         if (e.target === this) closeFeaturedModal();
     });
+</script>
+
+<script>
+// ===== LAZY-LOAD VIDEOS WITH INTERSECTION OBSERVER =====
+document.addEventListener('DOMContentLoaded', function() {
+    const videoWrappers = document.querySelectorAll('.video-wrapper');
+    
+    if (!('IntersectionObserver' in window)) {
+        // Fallback: load all videos immediately if no IntersectionObserver
+        videoWrappers.forEach(initVideo);
+        return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                initVideo(entry.target);
+                observer.unobserve(entry.target);
+            }
+        });
+    }, {
+        rootMargin: '100px', // Start loading 100px before entering viewport
+        threshold: 0.1
+    });
+
+    videoWrappers.forEach(wrapper => observer.observe(wrapper));
+});
+
+function initVideo(wrapper, isModal = false) {
+    const video = wrapper.querySelector('.video-player');
+    const poster = wrapper.querySelector('.video-poster');
+    const videoSrc = wrapper.dataset.videoSrc;
+    
+    if (!video || !videoSrc || video.dataset.loaded === 'true') return;
+    
+    video.dataset.loaded = 'true';
+    
+    // Check if it's a YouTube URL
+    const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
+    
+    if (isYouTube) {
+        // Convert YouTube URL to embed format
+        let videoId = '';
+        const patterns = [
+            /(?:youtube\.com\/shorts\/)([^?&]+)/,
+            /(?:youtube\.com\/watch\?v=)([^&]+)/,
+            /(?:youtu\.be\/)([^?&]+)/,
+            /(?:youtube\.com\/embed\/)([^?&]+)/
+        ];
+        
+        for (const pattern of patterns) {
+            const match = videoSrc.match(pattern);
+            if (match) {
+                videoId = match[1];
+                break;
+            }
+        }
+        
+        if (videoId) {
+            // Add enablejsapi=1 for potential API control, disable all controls
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+            wrapper.innerHTML = `
+                <div class="youtube-wrapper relative w-full h-full">
+                    <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                </div>
+            `;
+            if (poster) poster.style.display = 'none';
+            
+            // For modal: signal when video ends (YouTube API would be needed for precise detection)
+            if (isModal) {
+                wrapper.dataset.youtubeId = videoId;
+                wrapper.dataset.isYouTube = 'true';
+            }
+        }
+        return;
+    }
+    
+    // Direct video file (MP4, WebM, etc.)
+    // Predictive pre-buffering: preload metadata first, then buffer when near
+    if (!isModal) {
+        video.preload = 'metadata'; // Fast initial load
+    }
+    
+    video.src = videoSrc;
+    
+    video.addEventListener('loadeddata', function() {
+        // Video is ready to play, fade in
+        video.classList.remove('opacity-0');
+        video.classList.add('opacity-100');
+        if (poster) poster.style.display = 'none';
+        video.play().catch(() => {
+            // Autoplay might be blocked, that's okay
+        });
+    });
+    
+    video.addEventListener('error', function() {
+        // On error, keep showing poster
+        if (poster) poster.style.display = 'block';
+    });
+    
+    // For modal: track video end
+    if (isModal) {
+        video.dataset.isYouTube = 'false';
+    }
+}
 </script>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

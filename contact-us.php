@@ -324,11 +324,12 @@ async function handleContactSubmit(e) {
 
 
 /* ============================================================
-   LIVE CHAT (Database-backed)
+   LIVE CHAT (Database-backed - connected to admin support)
    ============================================================ */
 let chatOpen = false;
 let hasOpenedChat = false;
 let chatPollInterval = null;
+let chatVisitorEmail = null;
 
 const chatPanel = document.getElementById('chatPanel');
 const chatMessages = document.getElementById('chatMessages');
@@ -384,6 +385,8 @@ async function loadChatMessages() {
         const data = await res.json();
         if (!data.success) return;
 
+        chatVisitorEmail = data.visitor_email;
+
         const messages = data.messages || [];
         if (messages.length === 0) return;
 
@@ -392,8 +395,8 @@ async function loadChatMessages() {
         if (existingCount === 0) {
             chatMessages.innerHTML = '';
             messages.forEach(msg => {
-                const isSender = !msg.is_admin && msg.sender_name === 'Visitor';
-                if (msg.is_admin) {
+                const isAdmin = msg.is_admin == 1;
+                if (isAdmin) {
                     addReceiverMessageDOM(msg.message, msg.created_at);
                 } else {
                     addSenderMessageDOM(msg.message, msg.created_at);
@@ -499,30 +502,23 @@ async function sendMessage(e) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 sender_name: 'Visitor',
-                sender_email: '',
+                sender_email: chatVisitorEmail || '',
                 message: text,
                 is_admin: 0,
             }),
         });
         const data = await res.json();
         if (!data.success) {
-            // Message still shown locally; just log
             console.error('Chat send failed:', data.error);
+        } else if (data.visitor_email) {
+            chatVisitorEmail = data.visitor_email;
         }
     } catch (err) {
         console.error('Chat send error:', err);
     }
-
-    // Simulate admin typing + reply after a short delay
-    setTimeout(() => {
-        showTyping();
-        setTimeout(() => {
-            hideTyping();
-            addReceiverMessage("Thanks for your message! Our support team will get back to you shortly.");
-        }, 1500 + Math.random() * 1000);
-    }, 600);
 }
 
+/* ---------- Quick replies ---------- */
 function sendQuickReply(text) {
     if (!chatOpen) openChat();
     chatInput.value = text;

@@ -69,6 +69,7 @@ try {
                 return ['icon' => $icon, 'label' => htmlspecialchars($a)];
             }, $amenities),
             'images' => array_map(function($img) { return htmlspecialchars($img); }, $images),
+            'video_url' => $row['video_url'] ?? null,
             'lat' => $row['lat'] ? (float) $row['lat'] : null,
             'lng' => $row['lng'] ? (float) $row['lng'] : null,
         ];
@@ -329,6 +330,32 @@ try {
         background-size: 30px 30px;
     }
     #rentalMap { width: 100%; height: 200px; border-radius: 12px; background: #eef2f2; }
+
+    /* ===== VIDEO LAZY-LOADING ===== */
+    .video-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .video-poster {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: opacity 0.3s ease;
+    }
+    .video-player {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .youtube-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .pointer-events-none {
+        pointer-events: none;
+    }
 </style>
 
 <!-- ================= HERO WITH SEARCH ================= -->
@@ -613,7 +640,16 @@ foreach ($rentals as $r) {
                     ?>
                     <article class="rent-card anim-fade-up group" onclick="openRentModal('<?php echo $r['id']; ?>')">
                         <div class="relative h-52 overflow-hidden">
+                            <?php if (!empty($r['video_url'])): 
+                                $videoId = 'rent-video-' . $r['id'];
+                            ?>
+                            <div class="video-wrapper w-full h-full" data-video-src="<?php echo $r['video_url']; ?>" data-poster="<?php echo $r['images'][0]; ?>">
+                                <img src="<?php echo $r['images'][0]; ?>" alt="<?php echo $r['title']; ?>" class="video-poster w-full h-full object-cover">
+                                <video id="<?php echo $videoId; ?>" class="video-player absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" muted playsinline loop preload="none"></video>
+                            </div>
+                            <?php else: ?>
                             <img src="<?php echo $r['images'][0]; ?>" alt="<?php echo $r['title']; ?>" class="rent-img w-full h-full object-cover">
+                            <?php endif; ?>
                             <span class="badge-rent <?php echo $badgeColor; ?>"><?php echo $r['badge']; ?></span>
                             <?php if ($r['furnished']): ?>
                             <span class="absolute top-3 left-3 mt-7 bg-accentOrange text-white text-[9px] font-bold px-2 py-0.5 rounded-full"><i class="fas fa-couch mr-0.5"></i>Furnished</span>
@@ -682,7 +718,9 @@ foreach ($rentals as $r) {
         <!-- Gallery -->
         <div class="relative">
             <div class="h-[240px] md:h-[420px] overflow-hidden rounded-t-2xl md:rounded-t-3xl">
-                <img id="modalMainImg" src="" alt="Rental" class="w-full h-full object-cover transition-opacity duration-500">
+                <div id="modalMainMedia" class="w-full h-full">
+                    <!-- Main image or video injected via JS -->
+                </div>
             </div>
             <div class="absolute bottom-3 right-3 bg-black/60 backdrop-blur text-white text-[10px] md:text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5">
                 <i class="fas fa-camera"></i> <span id="modalPhotoCount">6</span> photos
@@ -1435,7 +1473,6 @@ function openRentModal(id) {
     if (!r) return;
     modalSlideIndex = 0;
 
-    document.getElementById('modalMainImg').src = r.images[0];
     document.getElementById('modalTitle').textContent = r.title;
     document.getElementById('modalLocation').textContent = r.location;
     document.getElementById('modalRating').textContent = r.rating;
@@ -1450,7 +1487,6 @@ function openRentModal(id) {
     document.getElementById('modalPrice').textContent = `KSh ${r.price.toLocaleString()}`;
     document.getElementById('modalAgentName').textContent = r.agentName;
     document.getElementById('modalAgentInitial').textContent = r.agentInitial;
-    document.getElementById('modalPhotoCount').textContent = r.images.length;
     document.getElementById('modalBadge').textContent = r.badge;
     document.getElementById('modalFurnished').classList.toggle('hidden', !r.furnished);
     currentModalLat = r.lat;
@@ -1470,13 +1506,48 @@ function openRentModal(id) {
         </div>
     `).join('');
 
+    // Build media array: video first if exists, then images
+    const media = [];
+    if (r.video_url) {
+        media.push({ type: 'video', src: r.video_url });
+    }
+    r.images.forEach(img => media.push({ type: 'image', src: img }));
+
+    document.getElementById('modalPhotoCount').textContent = media.length;
+
+    // Render main media
+    renderModalMainMedia(media[0]);
+
     // Thumbnails
     const thumbContainer = document.getElementById('modalThumbs');
-    thumbContainer.innerHTML = r.images.map((img, i) => `
-        <button onclick="changeModalImage(${i}, '${img}')" class="modal-thumb ${i === 0 ? 'ring-2 ring-white' : 'ring-1 ring-white/40'} w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white">
-            <img src="${img}" alt="thumb" class="w-full h-full object-cover">
-        </button>
-    `).join('');
+    thumbContainer.innerHTML = media.map((m, i) => {
+        const isYouTube = m.type === 'video' && (m.src.includes('youtube.com') || m.src.includes('youtu.be'));
+        let thumbHtml;
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = m.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            const ytThumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : r.images[0];
+            thumbHtml = `<img src="${ytThumb}" class="w-full h-full object-cover" alt="Video thumbnail">`;
+        } else if (m.type === 'video') {
+            thumbHtml = `<video src="${m.src}" muted playsinline class="w-full h-full object-cover" poster="${r.images[0]}"></video>`;
+        } else {
+            thumbHtml = `<img src="${m.src}" class="w-full h-full object-cover" alt="thumb">`;
+        }
+        return `
+            <button onclick="changeModalMedia(${i})" class="modal-thumb ${i === 0 ? 'ring-2 ring-white' : 'ring-1 ring-white/40'} w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white">
+                ${thumbHtml}
+            </button>
+        `;
+    }).join('');
 
     // Init map after modal is shown
     const modal = document.getElementById('rentModal');
@@ -1487,7 +1558,7 @@ function openRentModal(id) {
         initPropertyMap(r.lat, r.lng);
     });
 
-    startModalSlideshow(r.images);
+    startModalSlideshow(media);
 }
 
 function changeModalImage(index, src) {
@@ -1505,23 +1576,96 @@ function changeModalImage(index, src) {
     });
 }
 
-function startModalSlideshow(images) {
+function renderModalMainMedia(media) {
+    const container = document.getElementById('modalMainMedia');
+    if (media.type === 'video') {
+        const isYouTube = media.src.includes('youtube.com') || media.src.includes('youtu.be');
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = media.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            if (videoId) {
+                const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+                container.innerHTML = `
+                    <div class="youtube-wrapper relative w-full h-full">
+                        <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `<video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+            }
+        } else {
+            container.innerHTML = `<video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+        }
+    } else {
+        container.innerHTML = `<img src="${media.src}" alt="Rental" class="w-full h-full object-cover transition-opacity duration-500">`;
+    }
+}
+
+function changeModalMedia(index) {
+    const r = rentalsData.find(s => s.id === document.getElementById('rentModal').dataset.currentId);
+    if (!r) return;
+    
+    const media = [];
+    if (r.video_url) media.push({ type: 'video', src: r.video_url });
+    r.images.forEach(img => media.push({ type: 'image', src: img }));
+    
+    modalSlideIndex = index;
+    renderModalMainMedia(media[index]);
+    
+    document.querySelectorAll('.modal-thumb').forEach((t, i) => {
+        t.className = i === index
+            ? 'modal-thumb ring-2 ring-white w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all'
+            : 'modal-thumb ring-1 ring-white/40 w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white';
+    });
+}
+
+function startModalSlideshow(media) {
     if (modalSlideInterval) clearInterval(modalSlideInterval);
-    modalSlideInterval = setInterval(() => {
-        if (document.getElementById('rentModal').classList.contains('hidden')) return;
-        modalSlideIndex = (modalSlideIndex + 1) % images.length;
-        const main = document.getElementById('modalMainImg');
-        main.style.opacity = '0';
-        setTimeout(() => {
-            main.src = images[modalSlideIndex];
-            main.style.opacity = '1';
-        }, 200);
+    
+    let isWaitingForVideo = false;
+    const container = document.getElementById('modalMainMedia');
+
+    function advanceSlide() {
+        if (isWaitingForVideo) return;
+        
+        modalSlideIndex = (modalSlideIndex + 1) % media.length;
+        renderModalMainMedia(media[modalSlideIndex]);
+
         document.querySelectorAll('.modal-thumb').forEach((t, i) => {
             t.className = i === modalSlideIndex
                 ? 'modal-thumb ring-2 ring-white w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all'
                 : 'modal-thumb ring-1 ring-white/40 w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white';
         });
-    }, 4500);
+
+        // Check if new media is a video
+        const currentMedia = media[modalSlideIndex];
+        if (currentMedia.type === 'video') {
+            isWaitingForVideo = true;
+            const videoEl = container.querySelector('video');
+            const iframe = container.querySelector('iframe');
+            
+            if (videoEl) {
+                videoEl.onended = function() {
+                    isWaitingForVideo = false;
+                    advanceSlide();
+                };
+                setTimeout(() => { isWaitingForVideo = false; }, 30000);
+            } else if (iframe) {
+                setTimeout(() => { isWaitingForVideo = false; }, 65000);
+            }
+        }
+    }
+
+    modalSlideInterval = setInterval(advanceSlide, 5000);
 }
 
 function closeRentModal() {
@@ -1545,6 +1689,82 @@ document.getElementById('rentModal').addEventListener('click', function(e) {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeRentModal();
 });
+
+/* ===== LAZY-LOAD VIDEOS WITH INTERSECTION OBSERVER ===== */
+document.addEventListener('DOMContentLoaded', function() {
+    const videoWrappers = document.querySelectorAll('.video-wrapper');
+    
+    if (!('IntersectionObserver' in window)) {
+        videoWrappers.forEach(initVideo);
+        return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                initVideo(entry.target);
+                observer.unobserve(entry.target);
+            }
+        });
+    }, {
+        rootMargin: '100px',
+        threshold: 0.1
+    });
+
+    videoWrappers.forEach(wrapper => observer.observe(wrapper));
+});
+
+function initVideo(wrapper) {
+    const video = wrapper.querySelector('.video-player');
+    const poster = wrapper.querySelector('.video-poster');
+    const videoSrc = wrapper.dataset.videoSrc;
+    
+    if (!video || !videoSrc || video.dataset.loaded === 'true') return;
+    
+    video.dataset.loaded = 'true';
+    
+    const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
+    
+    if (isYouTube) {
+        let videoId = '';
+        const patterns = [
+            /(?:youtube\.com\/shorts\/)([^?&]+)/,
+            /(?:youtube\.com\/watch\?v=)([^&]+)/,
+            /(?:youtu\.be\/)([^?&]+)/,
+            /(?:youtube\.com\/embed\/)([^?&]+)/
+        ];
+        for (const pattern of patterns) {
+            const match = videoSrc.match(pattern);
+            if (match) { videoId = match[1]; break; }
+        }
+        if (videoId) {
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+            wrapper.innerHTML = `
+                <div class="youtube-wrapper relative w-full h-full">
+                    <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                </div>
+            `;
+            if (poster) poster.style.display = 'none';
+        }
+        return;
+    }
+    
+    video.preload = 'metadata';
+    video.src = videoSrc;
+    
+    video.addEventListener('loadeddata', function() {
+        video.classList.remove('opacity-0');
+        video.classList.add('opacity-100');
+        if (poster) poster.style.display = 'none';
+        video.play().catch(() => {});
+    });
+    
+    video.addEventListener('error', function() {
+        if (poster) poster.style.display = 'block';
+    });
+    
+    video.load();
+}
 
 /* ============================================================
    INIT

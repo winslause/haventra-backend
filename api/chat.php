@@ -1,5 +1,5 @@
 <?php
-// api/chat.php - Chat messages handler: load history + send new message
+// api/chat.php - Live chat handler: load history + send new message (saves to contact_messages for admin panel integration)
 if (!defined('APP_PATH')) {
     define('APP_PATH', __DIR__ . '/../');
 }
@@ -15,21 +15,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+// Generate or get session ID for anonymous chat visitors
+session_start();
+if (!isset($_SESSION['chat_visitor_id'])) {
+    $_SESSION['chat_visitor_id'] = 'visitor_' . bin2hex(random_bytes(8));
+}
+$visitorId = $_SESSION['chat_visitor_id'];
+$visitorEmail = "chat_{$visitorId}@haventra.local";
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'GET') {
-    // Load chat messages (latest 100)
+    // Load chat messages for this visitor from contact_messages
     try {
         $limit = intval($_GET['limit'] ?? 100);
         $stmt = $pdo->prepare("
-            SELECT id, sender_name, sender_email, message, is_admin, created_at, is_read
-            FROM chat_messages
+            SELECT id, name, email, message, created_at, name as sender_name
+            FROM contact_messages
+            WHERE email = ?
             ORDER BY created_at ASC
             LIMIT ?
         ");
-        $stmt->execute([$limit]);
+        $stmt->execute([$visitorEmail, $limit]);
         $rows = $stmt->fetchAll();
-        echo json_encode(['success' => true, 'messages' => $rows]);
+        // Add is_admin flag based on sender name
+        foreach ($rows as &$r) {
+            $r['is_admin'] = (stripos($r['sender_name'], 'Admin') !== false) ? 1 : 0;
+        }
+        echo json_encode(['success' => true, 'messages' => $rows, 'visitor_email' => $visitorEmail]);
     } catch (PDOException $e) {
         http_response_code(500);
         echo json_encode(['success' => false, 'error' => 'Failed to load messages']);
@@ -50,10 +63,16 @@ if (!$input) {
 }
 
 $senderName = trim($input['sender_name'] ?? 'Visitor');
-$senderEmail = trim($input['sender_email'] ?? '');
+$senderEmail = trim($input['sender_email'] ?? $visitorEmail);
 $message = trim($input['message'] ?? '');
 $isAdmin = intval($input['is_admin'] ?? 0);
-$replyTo = intval($input['reply_to'] ?? 0);
+
+// For admin replies, the sender_email must be provided in the request
+if ($isAdmin && !$senderEmail) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'sender_email required for admin replies']);
+    exit;
+}
 
 if (!$message) {
     http_response_code(400);
@@ -61,17 +80,24 @@ if (!$message) {
     exit;
 }
 
+// If admin is sending, use "Admin (You)" as name
+if ($isAdmin) {
+    $senderName = 'Admin (You)';
+}
+
 try {
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    $subject = $isAdmin ? 'Admin Reply' : 'Live Chat Message';
     $stmt = $pdo->prepare("
-        INSERT INTO chat_messages (sender_name, sender_email, message, is_admin, admin_reply_to)
-        VALUES (:sender_name, :sender_email, :message, :is_admin, :reply_to)
+        INSERT INTO contact_messages (name, email, phone, subject, message, ip_address)
+        VALUES (:name, :email, '', :subject, :message, :ip)
     ");
     $stmt->execute([
-        ':sender_name' => $senderName,
-        ':sender_email' => $senderEmail,
+        ':name' => $senderName,
+        ':email' => $senderEmail,
+        ':subject' => $subject,
         ':message' => $message,
-        ':is_admin' => $isAdmin,
-        ':reply_to' => $replyTo ?: null,
+        ':ip' => $ip,
     ]);
     $id = $pdo->lastInsertId();
 
@@ -79,6 +105,7 @@ try {
         'success' => true,
         'id' => (int)$id,
         'message' => 'Message sent',
+        'visitor_email' => $visitorEmail,
     ]);
 } catch (PDOException $e) {
     http_response_code(500);

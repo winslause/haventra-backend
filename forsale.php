@@ -71,6 +71,7 @@ try {
                 return ['icon' => $icon, 'label' => htmlspecialchars($a)];
             }, $amenities),
             'images' => array_map(function($img) { return htmlspecialchars($img); }, $images),
+            'video_url' => $row['video_url'] ?? null,
             'lat' => $row['lat'] ? (float) $row['lat'] : null,
             'lng' => $row['lng'] ? (float) $row['lng'] : null,
         ];
@@ -339,6 +340,34 @@ foreach ($sales as $s) {
     }
 </style>
 
+<style>
+    /* ===== VIDEO LAZY-LOADING ===== */
+    .video-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .video-poster {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: opacity 0.3s ease;
+    }
+    .video-player {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .youtube-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .pointer-events-none {
+        pointer-events: none;
+    }
+</style>
+
 <!-- ================= HERO WITH SEARCH ================= -->
 <section class="sale-hero relative pt-10 pb-16 md:pt-12 md:pb-24 px-4">
     
@@ -597,7 +626,16 @@ foreach ($sales as $s) {
                     ?>
                     <article class="sale-card anim-fade-up group" onclick="openSaleModal('<?php echo $s['id']; ?>')">
                         <div class="relative h-52 overflow-hidden">
+                            <?php if (!empty($s['video_url'])): 
+                                $videoId = 'sale-video-' . $s['id'];
+                            ?>
+                            <div class="video-wrapper w-full h-full" data-video-src="<?php echo $s['video_url']; ?>" data-poster="<?php echo $s['images'][0]; ?>">
+                                <img src="<?php echo $s['images'][0]; ?>" alt="<?php echo $s['title']; ?>" class="video-poster w-full h-full object-cover">
+                                <video id="<?php echo $videoId; ?>" class="video-player absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" muted playsinline loop preload="none"></video>
+                            </div>
+                            <?php else: ?>
                             <img src="<?php echo $s['images'][0]; ?>" alt="<?php echo $s['title']; ?>" class="sale-img w-full h-full object-cover">
+                            <?php endif; ?>
                             <span class="badge-sale <?php echo $badgeColor; ?>"><?php echo $s['badge']; ?></span>
                             <?php if ($s['furnished']): ?>
                             <span class="absolute top-3 left-3 mt-7 bg-accentOrange text-white text-[9px] font-bold px-2 py-0.5 rounded-full"><i class="fas fa-couch mr-0.5"></i>Furnished</span>
@@ -666,7 +704,9 @@ foreach ($sales as $s) {
         <!-- Gallery -->
         <div class="relative">
             <div class="h-[240px] md:h-[420px] overflow-hidden rounded-t-2xl md:rounded-t-3xl">
-                <img id="saleMainImg" src="" alt="Property for Sale" class="w-full h-full object-cover transition-opacity duration-500">
+                <div id="saleMainMedia" class="w-full h-full">
+                    <!-- Main image or video injected via JS -->
+                </div>
             </div>
             <div class="absolute bottom-3 right-3 bg-black/60 backdrop-blur text-white text-[10px] md:text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5">
                 <i class="fas fa-camera"></i> <span id="salePhotoCount">6</span> photos
@@ -1276,7 +1316,6 @@ function openSaleModal(id) {
     if (!s) return;
     modalSlideIndex = 0;
 
-    document.getElementById('saleMainImg').src = s.images[0];
     document.getElementById('saleTitle').textContent = s.title;
     document.getElementById('saleLocation').textContent = s.location;
     document.getElementById('saleRating').textContent = s.rating;
@@ -1291,7 +1330,6 @@ function openSaleModal(id) {
     document.getElementById('salePrice').textContent = `KSh ${s.price.toLocaleString()}`;
     document.getElementById('saleAgentName').textContent = s.agentName;
     document.getElementById('saleAgentInitial').textContent = s.agentInitial;
-    document.getElementById('salePhotoCount').textContent = s.images.length;
     document.getElementById('saleBadge').textContent = s.badge;
     document.getElementById('saleFurnished').classList.toggle('hidden', !s.furnished);
 
@@ -1311,13 +1349,48 @@ function openSaleModal(id) {
         </div>
     `).join('');
 
+    // Build media array: video first if exists, then images
+    const media = [];
+    if (s.video_url) {
+        media.push({ type: 'video', src: s.video_url });
+    }
+    s.images.forEach(img => media.push({ type: 'image', src: img }));
+
+    document.getElementById('salePhotoCount').textContent = media.length;
+
+    // Render main media
+    renderSaleMainMedia(media[0]);
+
     // Thumbnails
     const thumbContainer = document.getElementById('saleThumbs');
-    thumbContainer.innerHTML = s.images.map((img, i) => `
-        <button onclick="changeSaleImage(${i}, '${img}')" class="modal-thumb ${i === 0 ? 'ring-2 ring-white' : 'ring-1 ring-white/40'} w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white">
-            <img src="${img}" alt="thumb" class="w-full h-full object-cover">
-        </button>
-    `).join('');
+    thumbContainer.innerHTML = media.map((m, i) => {
+        const isYouTube = m.type === 'video' && (m.src.includes('youtube.com') || m.src.includes('youtu.be'));
+        let thumbHtml;
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = m.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            const ytThumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : s.images[0];
+            thumbHtml = `<img src="${ytThumb}" class="w-full h-full object-cover" alt="Video thumbnail">`;
+        } else if (m.type === 'video') {
+            thumbHtml = `<video src="${m.src}" muted playsinline class="w-full h-full object-cover" poster="${s.images[0]}"></video>`;
+        } else {
+            thumbHtml = `<img src="${m.src}" class="w-full h-full object-cover" alt="thumb">`;
+        }
+        return `
+            <button onclick="changeSaleMedia(${i})" class="modal-thumb ${i === 0 ? 'ring-2 ring-white' : 'ring-1 ring-white/40'} w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white">
+                ${thumbHtml}
+            </button>
+        `;
+    }).join('');
 
     const modal = document.getElementById('saleModal');
     modal.classList.remove('hidden');
@@ -1327,7 +1400,7 @@ function openSaleModal(id) {
         initSaleMap(s.lat, s.lng);
     });
 
-    startSaleSlideshow(s.images);
+    startSaleSlideshow(media);
 }
 
 function changeSaleImage(index, src) {
@@ -1345,23 +1418,96 @@ function changeSaleImage(index, src) {
     });
 }
 
-function startSaleSlideshow(images) {
+function renderSaleMainMedia(media) {
+    const container = document.getElementById('saleMainMedia');
+    if (media.type === 'video') {
+        const isYouTube = media.src.includes('youtube.com') || media.src.includes('youtu.be');
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = media.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            if (videoId) {
+                const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+                container.innerHTML = `
+                    <div class="youtube-wrapper relative w-full h-full">
+                        <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `<video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+            }
+        } else {
+            container.innerHTML = `<video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+        }
+    } else {
+        container.innerHTML = `<img src="${media.src}" alt="Property for Sale" class="w-full h-full object-cover transition-opacity duration-500">`;
+    }
+}
+
+function changeSaleMedia(index) {
+    const s = salesData.find(x => x.id === document.getElementById('saleModal').dataset.currentId);
+    if (!s) return;
+    
+    const media = [];
+    if (s.video_url) media.push({ type: 'video', src: s.video_url });
+    s.images.forEach(img => media.push({ type: 'image', src: img }));
+    
+    modalSlideIndex = index;
+    renderSaleMainMedia(media[index]);
+    
+    document.querySelectorAll('.modal-thumb').forEach((t, i) => {
+        t.className = i === index
+            ? 'modal-thumb ring-2 ring-white w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all'
+            : 'modal-thumb ring-1 ring-white/40 w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white';
+    });
+}
+
+function startSaleSlideshow(media) {
     if (modalSlideInterval) clearInterval(modalSlideInterval);
-    modalSlideInterval = setInterval(() => {
-        if (document.getElementById('saleModal').classList.contains('hidden')) return;
-        modalSlideIndex = (modalSlideIndex + 1) % images.length;
-        const main = document.getElementById('saleMainImg');
-        main.style.opacity = '0';
-        setTimeout(() => {
-            main.src = images[modalSlideIndex];
-            main.style.opacity = '1';
-        }, 200);
+    
+    let isWaitingForVideo = false;
+    const container = document.getElementById('saleMainMedia');
+
+    function advanceSlide() {
+        if (isWaitingForVideo) return;
+        
+        modalSlideIndex = (modalSlideIndex + 1) % media.length;
+        renderSaleMainMedia(media[modalSlideIndex]);
+
         document.querySelectorAll('.modal-thumb').forEach((t, i) => {
             t.className = i === modalSlideIndex
                 ? 'modal-thumb ring-2 ring-white w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all'
                 : 'modal-thumb ring-1 ring-white/40 w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white';
         });
-    }, 4500);
+
+        // Check if new media is a video
+        const currentMedia = media[modalSlideIndex];
+        if (currentMedia.type === 'video') {
+            isWaitingForVideo = true;
+            const videoEl = container.querySelector('video');
+            const iframe = container.querySelector('iframe');
+            
+            if (videoEl) {
+                videoEl.onended = function() {
+                    isWaitingForVideo = false;
+                    advanceSlide();
+                };
+                setTimeout(() => { isWaitingForVideo = false; }, 30000);
+            } else if (iframe) {
+                setTimeout(() => { isWaitingForVideo = false; }, 65000);
+            }
+        }
+    }
+
+    modalSlideInterval = setInterval(advanceSlide, 5000);
 }
 
 function closeSaleModal() {
@@ -1476,6 +1622,84 @@ function drawSaleRoute(userLat, userLng, propLat, propLng, coordinates) {
 
     const bounds = L.latLngBounds(routeCoords.concat([[userLat, userLng], [propLat, propLng]]));
     saleMap.fitBounds(bounds, { padding: [40, 40] });
+}
+
+/* ============================================================
+   LAZY-LOAD VIDEOS WITH INTERSECTION OBSERVER
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', function() {
+    const videoWrappers = document.querySelectorAll('.video-wrapper');
+    
+    if (!('IntersectionObserver' in window)) {
+        videoWrappers.forEach(initVideo);
+        return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                initVideo(entry.target);
+                observer.unobserve(entry.target);
+            }
+        });
+    }, {
+        rootMargin: '100px',
+        threshold: 0.1
+    });
+
+    videoWrappers.forEach(wrapper => observer.observe(wrapper));
+});
+
+function initVideo(wrapper) {
+    const video = wrapper.querySelector('.video-player');
+    const poster = wrapper.querySelector('.video-poster');
+    const videoSrc = wrapper.dataset.videoSrc;
+    
+    if (!video || !videoSrc || video.dataset.loaded === 'true') return;
+    
+    video.dataset.loaded = 'true';
+    
+    const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
+    
+    if (isYouTube) {
+        let videoId = '';
+        const patterns = [
+            /(?:youtube\.com\/shorts\/)([^?&]+)/,
+            /(?:youtube\.com\/watch\?v=)([^&]+)/,
+            /(?:youtu\.be\/)([^?&]+)/,
+            /(?:youtube\.com\/embed\/)([^?&]+)/
+        ];
+        for (const pattern of patterns) {
+            const match = videoSrc.match(pattern);
+            if (match) { videoId = match[1]; break; }
+        }
+        if (videoId) {
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+            wrapper.innerHTML = `
+                <div class="youtube-wrapper relative w-full h-full">
+                    <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                </div>
+            `;
+            if (poster) poster.style.display = 'none';
+        }
+        return;
+    }
+    
+    video.preload = 'metadata';
+    video.src = videoSrc;
+    
+    video.addEventListener('loadeddata', function() {
+        video.classList.remove('opacity-0');
+        video.classList.add('opacity-100');
+        if (poster) poster.style.display = 'none';
+        video.play().catch(() => {});
+    });
+    
+    video.addEventListener('error', function() {
+        if (poster) poster.style.display = 'block';
+    });
+    
+    video.load();
 }
 
 /* ============================================================

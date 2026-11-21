@@ -74,6 +74,7 @@ try {
                 return ['icon' => $icon, 'label' => htmlspecialchars($a)];
             }, $amenities),
             'images' => array_map(function($img) { return htmlspecialchars($img); }, $images),
+            'video_url' => $row['video_url'] ?? null,
             'lat' => $row['lat'] ? (float) $row['lat'] : null,
             'lng' => $row['lng'] ? (float) $row['lng'] : null,
         ];
@@ -441,6 +442,32 @@ tailwind.config.theme.extend.colors = Object.assign({
         color: #FF5A5F;
         text-decoration: underline;
     }
+
+    /* ===== VIDEO LAZY-LOADING ===== */
+    .video-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .video-poster {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: opacity 0.3s ease;
+    }
+    .video-player {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .youtube-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+    }
+    .pointer-events-none {
+        pointer-events: none;
+    }
 </style>
 
 <!-- ================= SEO BODY SECTION ================= -->
@@ -702,7 +729,16 @@ else $badgeColor = 'bg-stayCoral';
                     ?>
                     <article class="stay-card anim-fade-up group" onclick="openStayModal('<?php echo $s['id']; ?>')">
                         <div class="relative h-40 sm:h-52 overflow-hidden">
+                            <?php if (!empty($s['video_url'])): 
+                                $videoId = 'stay-video-' . $s['id'];
+                            ?>
+                            <div class="video-wrapper w-full h-full" data-video-src="<?php echo $s['video_url']; ?>" data-poster="<?php echo $s['images'][0]; ?>">
+                                <img src="<?php echo $s['images'][0]; ?>" alt="<?php echo $s['title']; ?>" class="video-poster w-full h-full object-cover">
+                                <video id="<?php echo $videoId; ?>" class="video-player absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" muted playsinline loop preload="none"></video>
+                            </div>
+                            <?php else: ?>
                             <img src="<?php echo $s['images'][0]; ?>" alt="<?php echo $s['title']; ?>" loading="lazy" decoding="async" class="stay-img w-full h-full object-cover">
+                            <?php endif; ?>
                             <span class="badge-stay <?php echo $badgeColor; ?>"><?php echo $s['badge']; ?></span>
                             <?php if ($s['superhost']): ?>
                             <span class="absolute top-3 left-3 mt-7 bg-accentOrange text-white text-[9px] font-bold px-2 py-0.5 rounded-full"><i class="fas fa-award mr-0.5"></i>Superhost</span>
@@ -773,7 +809,9 @@ else $badgeColor = 'bg-stayCoral';
         <!-- Gallery -->
         <div class="relative">
             <div class="h-[240px] md:h-[420px] overflow-hidden rounded-t-2xl md:rounded-t-3xl">
-                <img id="modalMainImg" src="" alt="Stay" class="w-full h-full object-cover transition-opacity duration-500">
+                <div id="stayMainMedia" class="w-full h-full">
+                    <!-- Main image or video injected via JS -->
+                </div>
             </div>
             <div class="absolute bottom-3 right-3 bg-black/60 backdrop-blur text-white text-[10px] md:text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5">
                 <i class="fas fa-camera"></i> <span id="modalPhotoCount">6</span> photos
@@ -1380,7 +1418,6 @@ function openStayModal(id, stay) {
     currentStayLng = stay.lng;
 
     // Populate
-    document.getElementById('modalMainImg').src = stay.images[0];
     document.getElementById('modalTitle').textContent = stay.title;
     document.getElementById('modalLocation').textContent = stay.location;
     document.getElementById('modalRating').textContent = stay.rating;
@@ -1395,7 +1432,6 @@ function openStayModal(id, stay) {
     document.getElementById('modalPrice').textContent = `KSh ${stay.price.toLocaleString()}`;
     document.getElementById('modalHostName').textContent = stay.hostName;
     document.getElementById('modalHostInitial').textContent = stay.hostInitial;
-    document.getElementById('modalPhotoCount').textContent = stay.images.length;
     document.getElementById('modalBadge').textContent = stay.badge;
     document.getElementById('modalBadge').className = `px-3 py-1 rounded-full text-[10px] md:text-xs font-bold uppercase bg-stayCoral/10 text-stayCoral`;
     document.getElementById('modalSuperhost').classList.toggle('hidden', !stay.superhost);
@@ -1415,16 +1451,48 @@ function openStayModal(id, stay) {
         </div>
     `).join('');
 
+    // Build media array: video first if exists, then images
+    const media = [];
+    if (stay.video_url) {
+        media.push({ type: 'video', src: stay.video_url });
+    }
+    stay.images.forEach(img => media.push({ type: 'image', src: img }));
+
+    document.getElementById('modalPhotoCount').textContent = media.length;
+
+    // Render main media
+    renderStayMainMedia(media[0]);
+
     // Thumbnails
     const thumbContainer = document.getElementById('modalThumbs');
-    thumbContainer.innerHTML = '';
-    stay.images.forEach((img, i) => {
-        const btn = document.createElement('button');
-        btn.className = 'modal-thumb ' + (i === 0 ? 'ring-2 ring-white' : 'ring-1 ring-white/40') + ' w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white';
-        btn.addEventListener('click', () => changeModalImage(i, img));
-        btn.innerHTML = '<img src="' + img + '" alt="thumb" class="w-full h-full object-cover">';
-        thumbContainer.appendChild(btn);
-    });
+    thumbContainer.innerHTML = media.map((m, i) => {
+        const isYouTube = m.type === 'video' && (m.src.includes('youtube.com') || m.src.includes('youtu.be'));
+        let thumbHtml;
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = m.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            const ytThumb = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : stay.images[0];
+            thumbHtml = `<img src="${ytThumb}" class="w-full h-full object-cover" alt="Video thumbnail">`;
+        } else if (m.type === 'video') {
+            thumbHtml = `<video src="${m.src}" muted playsinline class="w-full h-full object-cover" poster="${stay.images[0]}"></video>`;
+        } else {
+            thumbHtml = `<img src="${m.src}" class="w-full h-full object-cover" alt="thumb">`;
+        }
+        return `
+            <button onclick="changeStayMedia(${i})" class="modal-thumb ${i === 0 ? 'ring-2 ring-white' : 'ring-1 ring-white/40'} w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white">
+                ${thumbHtml}
+            </button>
+        `;
+    }).join('');
 
     // Show (init map after modal is visible so Leaflet sizes/loads fast like rentals)
     const modal = document.getElementById('stayModal');
@@ -1438,7 +1506,7 @@ function openStayModal(id, stay) {
     });
 
     // Start slideshow
-    startModalSlideshow(stay.images);
+    startModalSlideshow(media);
 }
 
 function changeModalImage(index, src) {
@@ -1456,9 +1524,97 @@ function changeModalImage(index, src) {
     });
 }
 
-/* ============================================================
-   LEAFLET MAP (free, no API key)
-   ============================================================ */
+function renderStayMainMedia(media) {
+    const container = document.getElementById('stayMainMedia');
+    if (media.type === 'video') {
+        const isYouTube = media.src.includes('youtube.com') || media.src.includes('youtu.be');
+        if (isYouTube) {
+            let videoId = '';
+            const patterns = [
+                /(?:youtube\.com\/shorts\/)([^?&]+)/,
+                /(?:youtube\.com\/watch\?v=)([^&]+)/,
+                /(?:youtu\.be\/)([^?&]+)/,
+                /(?:youtube\.com\/embed\/)([^?&]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = media.src.match(pattern);
+                if (match) { videoId = match[1]; break; }
+            }
+            if (videoId) {
+                const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+                container.innerHTML = `
+                    <div class="youtube-wrapper relative w-full h-full">
+                        <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `<video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+            }
+        } else {
+            container.innerHTML = `<video src="${media.src}" autoplay muted playsinline loop class="w-full h-full object-cover"></video>`;
+        }
+    } else {
+        container.innerHTML = `<img src="${media.src}" alt="Stay" class="w-full h-full object-cover transition-opacity duration-500">`;
+    }
+}
+
+function changeStayMedia(index) {
+    const stay = staysData.find(s => s.id === activeModalStayId);
+    if (!stay) return;
+    
+    const media = [];
+    if (stay.video_url) media.push({ type: 'video', src: stay.video_url });
+    stay.images.forEach(img => media.push({ type: 'image', src: img }));
+    
+    modalSlideIndex = index;
+    renderStayMainMedia(media[index]);
+    
+    document.querySelectorAll('.modal-thumb').forEach((t, i) => {
+        t.className = i === index
+            ? 'modal-thumb ring-2 ring-white w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all'
+            : 'modal-thumb ring-1 ring-white/40 w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white';
+    });
+}
+
+function startModalSlideshow(media) {
+    if (modalSlideInterval) clearInterval(modalSlideInterval);
+    
+    let isWaitingForVideo = false;
+    const container = document.getElementById('stayMainMedia');
+
+    function advanceSlide() {
+        if (isWaitingForVideo) return;
+        
+        modalSlideIndex = (modalSlideIndex + 1) % media.length;
+        renderStayMainMedia(media[modalSlideIndex]);
+
+        document.querySelectorAll('.modal-thumb').forEach((t, i) => {
+            t.className = i === modalSlideIndex
+                ? 'modal-thumb ring-2 ring-white w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all'
+                : 'modal-thumb ring-1 ring-white/40 w-10 h-10 md:w-12 md:h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all hover:ring-2 hover:ring-white';
+        });
+
+        // Check if new media is a video
+        const currentMedia = media[modalSlideIndex];
+        if (currentMedia.type === 'video') {
+            isWaitingForVideo = true;
+            const videoEl = container.querySelector('video');
+            const iframe = container.querySelector('iframe');
+            
+            if (videoEl) {
+                videoEl.onended = function() {
+                    isWaitingForVideo = false;
+                    advanceSlide();
+                };
+                setTimeout(() => { isWaitingForVideo = false; }, 30000);
+            } else if (iframe) {
+                setTimeout(() => { isWaitingForVideo = false; }, 65000);
+            }
+        }
+    }
+
+    modalSlideInterval = setInterval(advanceSlide, 5000);
+}
 
 function initStayMap(lat, lng) {
     const mapEl = document.getElementById('stayMap');
@@ -1579,6 +1735,84 @@ document.getElementById('stayModal').addEventListener('click', function(e) {
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') closeStayModal();
 });
+
+/* ============================================================
+   LAZY-LOAD VIDEOS WITH INTERSECTION OBSERVER
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', function() {
+    const videoWrappers = document.querySelectorAll('.video-wrapper');
+    
+    if (!('IntersectionObserver' in window)) {
+        videoWrappers.forEach(initVideo);
+        return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                initVideo(entry.target);
+                observer.unobserve(entry.target);
+            }
+        });
+    }, {
+        rootMargin: '100px',
+        threshold: 0.1
+    });
+
+    videoWrappers.forEach(wrapper => observer.observe(wrapper));
+});
+
+function initVideo(wrapper) {
+    const video = wrapper.querySelector('.video-player');
+    const poster = wrapper.querySelector('.video-poster');
+    const videoSrc = wrapper.dataset.videoSrc;
+    
+    if (!video || !videoSrc || video.dataset.loaded === 'true') return;
+    
+    video.dataset.loaded = 'true';
+    
+    const isYouTube = videoSrc.includes('youtube.com') || videoSrc.includes('youtu.be');
+    
+    if (isYouTube) {
+        let videoId = '';
+        const patterns = [
+            /(?:youtube\.com\/shorts\/)([^?&]+)/,
+            /(?:youtube\.com\/watch\?v=)([^&]+)/,
+            /(?:youtu\.be\/)([^?&]+)/,
+            /(?:youtube\.com\/embed\/)([^?&]+)/
+        ];
+        for (const pattern of patterns) {
+            const match = videoSrc.match(pattern);
+            if (match) { videoId = match[1]; break; }
+        }
+        if (videoId) {
+            const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
+            wrapper.innerHTML = `
+                <div class="youtube-wrapper relative w-full h-full">
+                    <iframe src="${embedUrl}" class="absolute inset-0 w-full h-full pointer-events-none" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                </div>
+            `;
+            if (poster) poster.style.display = 'none';
+        }
+        return;
+    }
+    
+    video.preload = 'metadata';
+    video.src = videoSrc;
+    
+    video.addEventListener('loadeddata', function() {
+        video.classList.remove('opacity-0');
+        video.classList.add('opacity-100');
+        if (poster) poster.style.display = 'none';
+        video.play().catch(() => {});
+    });
+    
+    video.addEventListener('error', function() {
+        if (poster) poster.style.display = 'block';
+    });
+    
+    video.load();
+}
 
 /* ============================================================
    INIT
